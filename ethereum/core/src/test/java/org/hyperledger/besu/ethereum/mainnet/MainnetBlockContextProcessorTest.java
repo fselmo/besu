@@ -27,6 +27,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallFailedException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallNoCodeAtAddressException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallProcessor;
 import org.hyperledger.besu.evm.Code;
@@ -101,7 +102,8 @@ public class MainnetBlockContextProcessorTest {
         .when(mockMessageCallProcessor)
         .process(any(), any());
     final MutableWorldState worldState = createWorldState(CALL_ADDRESS);
-    var exception = assertThrows(RuntimeException.class, () -> processSystemCall(worldState));
+    var exception =
+        assertThrows(SystemCallFailedException.class, () -> processSystemCall(worldState));
     assertThat(exception.getMessage()).isEqualTo("System call did not execute to completion");
   }
 
@@ -119,7 +121,8 @@ public class MainnetBlockContextProcessorTest {
         .when(mockMessageCallProcessor)
         .process(any(), any());
     final MutableWorldState worldState = createWorldState(CALL_ADDRESS);
-    var exception = assertThrows(RuntimeException.class, () -> processSystemCall(worldState));
+    var exception =
+        assertThrows(SystemCallFailedException.class, () -> processSystemCall(worldState));
     assertThat(exception.getMessage()).isEqualTo("System call halted: Stack underflow");
   }
 

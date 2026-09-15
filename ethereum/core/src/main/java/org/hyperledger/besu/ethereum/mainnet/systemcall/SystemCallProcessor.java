@@ -126,7 +126,8 @@ public class SystemCallProcessor {
       return frame.getOutputData();
     }
 
-    // The call must execute to completion
+    // Nothing is committed, so the call's state changes are discarded. Callers of a checked
+    // system call let this propagate to reject the block; callers of an unchecked one catch it.
     LOG.error(
         "System call did not execute to completion - haltReason: {}, address: {}, frame state: {}",
         frame.getExceptionalHaltReason().orElse(ExceptionalHaltReason.NONE),
@@ -137,7 +138,7 @@ public class SystemCallProcessor {
             .getExceptionalHaltReason()
             .map(haltReason -> "System call halted: " + haltReason.getDescription())
             .orElse("System call did not execute to completion");
-    throw new RuntimeException(errorMessage);
+    throw new SystemCallFailedException(errorMessage);
   }
 
   private static void applyAccessLocationTracker(

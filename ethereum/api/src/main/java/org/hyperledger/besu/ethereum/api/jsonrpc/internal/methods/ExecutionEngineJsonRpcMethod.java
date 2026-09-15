@@ -142,7 +142,10 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
             .addArgument(t.getMessage())
             .log();
       }
-      return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.INVALID_REQUEST);
+      // The request itself was well formed, so this is an internal error rather than an
+      // invalid request. INVALID_REQUEST is answered with HTTP 400, which the Engine API
+      // must not use for a request it accepted and then failed to process.
+      return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.INTERNAL_ERROR);
     }
   }
 

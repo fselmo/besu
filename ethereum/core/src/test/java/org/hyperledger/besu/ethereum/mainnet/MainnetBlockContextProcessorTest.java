@@ -26,6 +26,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PraguePreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallFailedException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallNoCodeAtAddressException;
@@ -124,6 +125,39 @@ public class MainnetBlockContextProcessorTest {
     var exception =
         assertThrows(SystemCallFailedException.class, () -> processSystemCall(worldState));
     assertThat(exception.getMessage()).isEqualTo("System call halted: Stack underflow");
+  }
+
+  @Test
+  void shouldKeepProcessingWhenUncheckedPreExecutionCallFails() {
+    doAnswer(
+            invocation -> {
+              MessageFrame messageFrame = invocation.getArgument(0);
+              messageFrame.getMessageFrameStack().pop();
+              messageFrame.setState(MessageFrame.State.COMPLETED_FAILED);
+              return null;
+            })
+        .when(mockMessageCallProcessor)
+        .process(any(), any());
+    when(mockBlockHeader.getParentHash()).thenReturn(Hash.EMPTY);
+    when(mockBlockHeader.getParentBeaconBlockRoot()).thenReturn(Optional.empty());
+    when(mockBlockHashLookup.apply(any(), any())).thenReturn(Hash.EMPTY);
+    final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
+    when(protocolSpec.getTransactionProcessor()).thenReturn(mockTransactionProcessor);
+    final MutableWorldState worldState = createWorldState(CALL_ADDRESS);
+    final BlockProcessingContext context =
+        new BlockProcessingContext(
+            mockBlockHeader,
+            worldState,
+            protocolSpec,
+            mockBlockHashLookup,
+            BlockAwareOperationTracer.NO_TRACING,
+            Optional.empty());
+
+    // EIP-2935 makes this an unchecked system call: a call that fails must not fail the block.
+    new PraguePreExecutionProcessor(CALL_ADDRESS).process(context, Optional.empty());
+
+    verify(mockMessageCallProcessor).process(any(), any());
+    assertThat(worldState.get(CALL_ADDRESS).getCode()).isEqualTo(Bytes.fromHexString("0x00"));
   }
 
   @Test

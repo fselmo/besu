@@ -81,6 +81,28 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
   static final int MAX_GENERATION = 6;
 
+  private static volatile BlockExecutionPathListener executionPathListener =
+      BlockExecutionPathListener.NONE;
+
+  /**
+   * Installs the listener told which executor runs each block, for every block processor in the
+   * process. Test runners install one to report the path; a node never does.
+   *
+   * @param listener the listener, or {@link BlockExecutionPathListener#NONE} to stop reporting
+   */
+  public static void setExecutionPathListener(final BlockExecutionPathListener listener) {
+    executionPathListener = listener;
+  }
+
+  /**
+   * The listener installed with {@link #setExecutionPathListener}.
+   *
+   * @return the listener, {@link BlockExecutionPathListener#NONE} when none is installed
+   */
+  public static BlockExecutionPathListener executionPathListener() {
+    return executionPathListener;
+  }
+
   protected final MainnetTransactionProcessor transactionProcessor;
 
   protected final AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory;
@@ -198,6 +220,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final MutableWorldState worldState,
       final Block block,
       final Optional<BlockAccessList> blockAccessList) {
+    // The sequential processor's entry for block import; the parallel processor overrides it.
+    executionPathListener.onSequential(block.getHeader(), "disabled");
     return processBlock(
         protocolContext, blockchain, worldState, block, blockAccessList, new NoPreprocessing());
   }

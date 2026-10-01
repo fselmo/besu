@@ -212,6 +212,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     }
 
     boolean setupFailed = false;
+    BalExecutionReporter.install();
     try {
       if (blockchainTestFiles.isEmpty()) {
         // if no files were specified, use standard input to get filenames
@@ -253,6 +254,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       System.err.println("Error: " + e.getMessage());
       e.printStackTrace(System.err);
     } finally {
+      BalExecutionReporter.uninstall();
       // Fail an empty run, so a typo in --test-name or a fixture tree that did not materialise
       // cannot be mistaken for a clean sweep. Not printed under --json-array, where that output is
       // parsed and only the array belongs.

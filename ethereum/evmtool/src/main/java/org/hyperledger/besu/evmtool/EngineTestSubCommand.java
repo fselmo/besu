@@ -218,6 +218,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     }
 
     boolean setupFailed = false;
+    BalExecutionReporter.install();
     try {
       if (engineTestFiles.isEmpty()) {
         final BufferedReader in =
@@ -253,6 +254,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       setupFailed = true;
       System.err.println("Error: " + e.getMessage());
     } finally {
+      BalExecutionReporter.uninstall();
       // An empty run is not a pass: a typo in --test-name, or a fixture tree that failed to
       // materialise, would otherwise be indistinguishable from a clean sweep.
       boolean ranNothing = false;

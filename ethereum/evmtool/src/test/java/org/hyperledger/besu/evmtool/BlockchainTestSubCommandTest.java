@@ -22,15 +22,19 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import picocli.CommandLine;
 
 /**
@@ -47,6 +51,21 @@ class BlockchainTestSubCommandTest {
 
   @TempDir Path tempDir;
 
+  @ParameterizedTest(name = "--bal-sequential={0}")
+  @ValueSource(booleans = {false, true})
+  void deliveredAccessListIsValidatedAgainstExecution(final boolean sequential) throws IOException {
+    assertThat(passes(FIXTURE, sequential)).isTrue();
+    assertThat(passes(withLastAccessListAccountDropped(), sequential)).isFalse();
+  }
+
+  @Test
+  void jsonArrayStdoutIsTheArrayAlone() throws IOException {
+    final JsonNode stdout = MAPPER.readTree(run("--json-array", FIXTURE.toString()));
+
+    assertThat(stdout.isArray()).isTrue();
+    assertThat(stdout).hasSize(1);
+  }
+
   @Test
   void exceptionDuringImportFailsItsTestAndTheRunContinues() throws IOException {
     // No schedule has this name, so importing the test's block throws.
@@ -58,8 +77,7 @@ class BlockchainTestSubCommandTest {
     final Path file = tempDir.resolve("throwing-then-passing.json");
     Files.writeString(file, MAPPER.writeValueAsString(bothTests));
 
-    final String stdout = run("--json-array", file.toString());
-    final JsonNode results = MAPPER.readTree(stdout.lines().reduce((first, last) -> last).get());
+    final JsonNode results = MAPPER.readTree(run("--json-array", file.toString()));
 
     assertThat(results).hasSize(2);
     assertThat(results.get(0).get("name").asText()).isEqualTo("throwing");
@@ -67,6 +85,25 @@ class BlockchainTestSubCommandTest {
     assertThat(results.get(0).get("error").asText())
         .startsWith("Unexpected exception importing block: java.lang.NullPointerException");
     assertThat(results.get(1).get("pass").asBoolean()).isTrue();
+  }
+
+  private boolean passes(final Path fixture, final boolean sequential) throws IOException {
+    final List<String> args = new ArrayList<>(List.of("--json-array"));
+    if (sequential) {
+      args.add("--bal-sequential");
+    }
+    args.add(fixture.toString());
+    return MAPPER.readTree(run(args.toArray(String[]::new))).get(0).get("pass").asBoolean();
+  }
+
+  private Path withLastAccessListAccountDropped() throws IOException {
+    final ObjectNode fixture = (ObjectNode) MAPPER.readTree(FIXTURE.toFile());
+    final ArrayNode accessList =
+        (ArrayNode) fixture.elements().next().get("blocks").get(0).get("blockAccessList");
+    accessList.remove(accessList.size() - 1);
+    final Path corrupted = tempDir.resolve("corrupted.json");
+    Files.writeString(corrupted, MAPPER.writeValueAsString(fixture));
+    return corrupted;
   }
 
   private static String run(final String... args) {

@@ -473,6 +473,18 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             parentCommand.out.println(rlpFailureReason);
           }
         }
+      } catch (final RuntimeException e) {
+        // Anything else escaping import is a defect, not a rejection: a node rejects a block with
+        // a result, never an exception. Charged to this test, so the rest of the run still runs.
+        testPassed = false;
+        final String exceptionFailureReason = "Unexpected exception importing block: " + e;
+        if (failureReason == null) {
+          failureReason = exceptionFailureReason;
+        }
+        if (!jsonArray) {
+          parentCommand.out.println(exceptionFailureReason);
+        }
+        break;
       }
     }
 

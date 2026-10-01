@@ -18,13 +18,19 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 
 /**
@@ -34,6 +40,44 @@ import picocli.CommandLine;
 class BlockchainTestSubCommandTest {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  /** An Amsterdam fixture with one self-transfer block and its block access list. */
+  private static final Path FIXTURE =
+      Path.of(BlockchainTestSubCommandTest.class.getResource("bal-self-transfer.json").getPath());
+
+  @TempDir Path tempDir;
+
+  @Test
+  void exceptionDuringImportFailsItsTestAndTheRunContinues() throws IOException {
+    // No schedule has this name, so importing the test's block throws.
+    final ObjectNode fixture = (ObjectNode) MAPPER.readTree(FIXTURE.toFile());
+    final ObjectNode throwing = (ObjectNode) fixture.elements().next().deepCopy();
+    throwing.put("network", "NoSuchFork");
+    final ObjectNode bothTests = MAPPER.createObjectNode().set("throwing", throwing);
+    bothTests.setAll(fixture);
+    final Path file = tempDir.resolve("throwing-then-passing.json");
+    Files.writeString(file, MAPPER.writeValueAsString(bothTests));
+
+    final String stdout = run("--json-array", file.toString());
+    final JsonNode results = MAPPER.readTree(stdout.lines().reduce((first, last) -> last).get());
+
+    assertThat(results).hasSize(2);
+    assertThat(results.get(0).get("name").asText()).isEqualTo("throwing");
+    assertThat(results.get(0).get("pass").asBoolean()).isFalse();
+    assertThat(results.get(0).get("error").asText())
+        .startsWith("Unexpected exception importing block: java.lang.NullPointerException");
+    assertThat(results.get(1).get("pass").asBoolean()).isTrue();
+  }
+
+  private static String run(final String... args) {
+    final ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+    final BlockchainTestSubCommand blockTest =
+        new BlockchainTestSubCommand(
+            new EvmToolCommand(System.in, new PrintWriter(stdout, true, UTF_8)));
+    new CommandLine(blockTest).parseArgs(args);
+    blockTest.run();
+    return stdout.toString(UTF_8);
+  }
 
   @Test
   void jsonArrayReportsUndecodableRlpAsFailedRatherThanOmittingTheTest() throws Exception {

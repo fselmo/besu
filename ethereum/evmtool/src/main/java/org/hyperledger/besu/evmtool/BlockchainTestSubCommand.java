@@ -352,7 +352,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     // test is validated against the wrong parameters.
     final ProtocolSchedule schedule =
         ReferenceTestProtocolSchedules.cached(
-                parentCommand.getEvmConfiguration(), spec.getBlobScheduleOptions().orElse(null))
+                parentCommand.getEvmConfiguration(),
+                spec.getBlobScheduleOptions().orElse(null),
+                false)
             .getByName(spec.getNetwork());
 
     BlockTestTracerManager tracerManager = null;

@@ -444,7 +444,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     try {
       schedule =
           ReferenceTestProtocolSchedules.cached(
-                  parentCommand.getEvmConfiguration(), spec.getBlobScheduleOptions().orElse(null))
+                  parentCommand.getEvmConfiguration(),
+                  spec.getBlobScheduleOptions().orElse(null),
+                  false)
               .getByName(spec.getNetwork());
     } catch (final RuntimeException e) {
       recordResult(

@@ -57,6 +57,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.io.Writer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -142,6 +144,8 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       names = {"--json-array"},
       description = "Output results as a JSON array: name, pass, fork, lastBlockHash, error.")
   private boolean jsonArray = false;
+
+  private static final PrintWriter DISCARDED_OUTPUT = new PrintWriter(Writer.nullWriter());
 
   private final List<ObjectNode> jsonArrayResults = Collections.synchronizedList(new ArrayList<>());
 
@@ -286,12 +290,12 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                   // too, and testing the wrong field silently runs the whole tree unfiltered.
                   if (nameFilter != null && !matchesTestName(test)) {
                     if (verbose) {
-                      parentCommand.out.println("Skipping test: " + test);
+                      progressOut().println("Skipping test: " + test);
                     }
                     return false;
                   }
                   if (verbose) {
-                    parentCommand.out.println("Considering " + test);
+                    progressOut().println("Considering " + test);
                   }
                   return true;
                 })
@@ -330,6 +334,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       return;
     }
     executeBlockchainTest(blockchainTests, results);
+  }
+
+  /**
+   * Where per-test progress goes: stdout, except under {@code --json-array}, whose stdout is the
+   * array alone so that it parses.
+   */
+  private PrintWriter progressOut() {
+    return jsonArray ? DISCARDED_OUTPUT : parentCommand.out;
   }
 
   private boolean matchesTestName(final String test) {
@@ -602,12 +614,11 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       if (worldState
           .streamAccounts(Bytes32.ZERO, Integer.MAX_VALUE)
           .anyMatch(AccountState::isEmpty)) {
-        parentCommand.out.println("Journaled account configured and empty account detected");
+        progressOut().println("Journaled account configured and empty account detected");
       }
 
       if (EvmSpecVersion.SPURIOUS_DRAGON.compareTo(evm.getEvmVersion()) > 0) {
-        parentCommand.out.println(
-            "Journaled account configured and fork prior to the merge specified");
+        progressOut().println("Journaled account configured and fork prior to the merge specified");
       }
     }
   }

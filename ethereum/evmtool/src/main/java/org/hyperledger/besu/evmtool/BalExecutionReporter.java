@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.evmtool;
 
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 
@@ -24,7 +25,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
  * Prints one JSON line to stderr for each block block-test and engine-test execute, naming the
- * executor that ran it, so a fixture's verdict can be tied to the path that produced it. Lines from
+ * executor that ran it, and one more when the parallel executor failed a block and it was run again
+ * sequentially, so a fixture's verdict can be tied to the path that produced it. Lines from
  * different workers interleave; the block hash ties each to its block.
  */
 final class BalExecutionReporter implements BlockExecutionPathListener {
@@ -51,6 +53,20 @@ final class BalExecutionReporter implements BlockExecutionPathListener {
     final ObjectNode line = event("balExecution", header);
     line.put("path", "sequential");
     line.put("reason", reason);
+    print(line);
+  }
+
+  @Override
+  public void onSequentialFallback(
+      final BlockHeader header,
+      final BlockProcessingResult parallelResult,
+      final BlockProcessingResult sequentialResult) {
+    final ObjectNode line = event("balFallback", header);
+    line.put("parallelError", parallelResult.errorMessage.orElse(""));
+    line.put("sequentialResult", sequentialResult.isSuccessful() ? "valid" : "invalid");
+    line.put(
+        "sequentialError",
+        sequentialResult.isSuccessful() ? "" : sequentialResult.errorMessage.orElse(""));
     print(line);
   }
 

@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.PreprocessingFunction.NoPreprocessing;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
@@ -158,7 +159,9 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       if (worldState instanceof BonsaiWorldState) {
         ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
       }
-      return super.processBlock(protocolContext, blockchain, worldState, block, blockAccessList);
+      // Straight to the sequential run, past the entry that reports a sequential processor.
+      return super.processBlock(
+          protocolContext, blockchain, worldState, block, blockAccessList, new NoPreprocessing());
     }
     return blockProcessingResult;
   }

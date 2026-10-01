@@ -72,6 +72,7 @@ import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncAlgorithmFactory;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.referencetests.EngineTestCaseSpec;
@@ -176,6 +177,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
               + " access list. The list is validated either way.")
   private boolean balSequential = false;
 
+  private BlockExecutionPathListener executionPathListener = BlockExecutionPathListener.NONE;
+
   @Option(
       names = {"--verbose"},
       description =
@@ -219,6 +222,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     }
 
     boolean setupFailed = false;
+    executionPathListener = new BalExecutionReporter(System.err);
     try {
       if (engineTestFiles.isEmpty()) {
         final BufferedReader in =
@@ -452,7 +456,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           ReferenceTestProtocolSchedules.cached(
                   parentCommand.getEvmConfiguration(),
                   spec.getBlobScheduleOptions().orElse(null),
-                  !balSequential)
+                  !balSequential,
+                  executionPathListener)
               .getByName(spec.getNetwork());
     } catch (final RuntimeException e) {
       recordResult(

@@ -198,6 +198,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final MutableWorldState worldState,
       final Block block,
       final Optional<BlockAccessList> blockAccessList) {
+    // The sequential processor's entry for block import; the parallel processor overrides it.
+    balConfiguration.getExecutionPathListener().onSequential(block.getHeader(), "disabled");
     return processBlock(
         protocolContext, blockchain, worldState, block, blockAccessList, new NoPreprocessing());
   }

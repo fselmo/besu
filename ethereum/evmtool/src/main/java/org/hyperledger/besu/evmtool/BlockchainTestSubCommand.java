@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -164,6 +165,8 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               + " access list. The list is validated either way.")
   private boolean balSequential = false;
 
+  private BlockExecutionPathListener executionPathListener = BlockExecutionPathListener.NONE;
+
   @ParentCommand private final EvmToolCommand parentCommand;
 
   // picocli does it magically
@@ -212,6 +215,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     }
 
     boolean setupFailed = false;
+    executionPathListener = new BalExecutionReporter(System.err);
     try {
       if (blockchainTestFiles.isEmpty()) {
         // if no files were specified, use standard input to get filenames
@@ -360,7 +364,8 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         ReferenceTestProtocolSchedules.cached(
                 parentCommand.getEvmConfiguration(),
                 spec.getBlobScheduleOptions().orElse(null),
-                !balSequential)
+                !balSequential,
+                executionPathListener)
             .getByName(spec.getNetwork());
 
     BlockTestTracerManager tracerManager = null;

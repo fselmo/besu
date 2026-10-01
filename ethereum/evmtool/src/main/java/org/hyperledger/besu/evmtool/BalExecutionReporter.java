@@ -23,6 +23,7 @@ import java.io.PrintStream;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.annotations.VisibleForTesting;
 
 /**
  * Prints one JSON line to stderr for each block block-test and engine-test execute, naming the
@@ -36,7 +37,8 @@ final class BalExecutionReporter implements BlockExecutionPathListener {
 
   private final PrintStream err;
 
-  private BalExecutionReporter(final PrintStream err) {
+  @VisibleForTesting
+  BalExecutionReporter(final PrintStream err) {
     this.err = err;
   }
 

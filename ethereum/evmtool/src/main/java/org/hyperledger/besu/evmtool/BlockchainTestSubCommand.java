@@ -16,6 +16,7 @@ package org.hyperledger.besu.evmtool;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
+import static org.hyperledger.besu.evmtool.BlockchainTestSubCommand.COMMAND_ALIAS;
 import static org.hyperledger.besu.evmtool.BlockchainTestSubCommand.COMMAND_NAME;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -96,6 +97,7 @@ import picocli.CommandLine.ParentCommand;
  */
 @Command(
     name = COMMAND_NAME,
+    aliases = COMMAND_ALIAS,
     description = "Execute an Ethereum Blockchain Test.",
     mixinStandardHelpOptions = true,
     versionProvider = VersionProvider.class)
@@ -110,6 +112,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
    * enter on the command line to invoke this command.
    */
   public static final String COMMAND_NAME = "block-test";
+
+  /** The name every client's runner answers to, so one invocation works across clients. */
+  public static final String COMMAND_ALIAS = "blocktest";
 
   @Option(
       names = {"--test-name"},

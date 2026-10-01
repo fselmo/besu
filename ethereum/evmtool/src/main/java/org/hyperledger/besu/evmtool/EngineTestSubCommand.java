@@ -73,7 +73,6 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncAlgorithmFactory;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
-import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
@@ -352,6 +351,12 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
             Runtime.getRuntime().availableProcessors(),
             METRICS);
     private static final EthPeers PEERS = new HarnessEthPeers(METRICS);
+    private static final EthContext ETH_CONTEXT =
+        new EthContext(PEERS, new EthMessages(), SCHEDULER, null);
+    private static final SynchronizerConfiguration SYNC_CONFIGURATION =
+        SynchronizerConfiguration.builder().build();
+    private static final BackwardSyncAlgorithmFactory BACKWARD_SYNC_ALGORITHMS =
+        new BackwardSyncAlgorithmFactory();
 
     // Shared no-op listener — avoids creating an anonymous class per test
     private static final EngineCallListener LISTENER =
@@ -492,9 +497,12 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
    * Builds the node's own {@link MergeCoordinator} for one test's chain, so newPayload and
    * forkchoiceUpdated store, validate and move the head exactly as they do on a node.
    *
-   * <p>Backward sync is wired but never starts: the merge context never reports initial sync as
-   * done, and there are no peers. No transaction pool is given because no forkchoiceUpdated here
-   * carries payload attributes, so no block is ever built.
+   * <p>Only state is built here: the coordinator, its mining configuration (which it fills from the
+   * schedule) and its backward chain. Backward sync is wired but never starts: the merge context
+   * never reports initial sync as done, and there are no peers. So it gets no sync state, which
+   * would subscribe to the shared peers for every test and keep each chain alive. No transaction
+   * pool is given because no forkchoiceUpdated here carries payload attributes, so no block is ever
+   * built.
    */
   private static MergeCoordinator newMergeCoordinator(
       final ProtocolContext context, final ProtocolSchedule schedule) {
@@ -502,17 +510,18 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         new BackwardSyncContext(
             context,
             schedule,
-            SynchronizerConfiguration.builder().build(),
+            EngineHarness.SYNC_CONFIGURATION,
             EngineHarness.METRICS,
-            new EthContext(EngineHarness.PEERS, new EthMessages(), EngineHarness.SCHEDULER, null),
-            new SyncState(context.getBlockchain(), EngineHarness.PEERS),
+            EngineHarness.ETH_CONTEXT,
+            // Read only by backward sync, which waits for isInitialSyncDone(), never set here.
+            null,
             BackwardChain.from(
                 new KeyValueStorageProvider(
                     SegmentedInMemoryKeyValueStorage::new,
                     new InMemoryKeyValueStorage(),
                     EngineHarness.METRICS),
                 ScheduleBasedBlockHeaderFunctions.create(schedule)),
-            new BackwardSyncAlgorithmFactory());
+            EngineHarness.BACKWARD_SYNC_ALGORITHMS);
     return new MergeCoordinator(
         context,
         schedule,

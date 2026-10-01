@@ -326,7 +326,32 @@ $EVM engine-test stdin < <path-to>/one_fixture.json
 ```
 
 `engine-test` prints failures and a final summary only; `--verbose` adds a line per test.
-`block-test` logs every imported block, so pipe through `grep -v 'Imported in'` for a quiet run.
+`block-test` logs every imported block unless `--json-array` is given, so pipe through
+`grep -v 'Imported in'` for a quiet run.
+
+`blocktest`, `enginetest` and `statetest` are accepted as aliases of the three subcommands, the
+names other clients' runners answer to.
+
+#### Parallel and sequential execution
+
+`block-test` and `engine-test` run blocks on the parallel block processor, as a Bonsai node does,
+and deliver each block's access list so it is validated against execution. `--bal-sequential` runs
+every block on the sequential block processor instead; the access list is validated either way.
+
+Both print one JSON line to stderr for each block they execute, naming the executor that ran it,
+and one more when the parallel processor failed a block and re-ran it sequentially (the block's
+result is the sequential one). Nothing of this goes to stdout.
+
+```text
+{"event":"balExecution","block":1,"hash":"0x…","path":"parallel","reason":"","scheduler":"bal"}
+{"event":"balExecution","block":1,"hash":"0x…","path":"sequential","reason":"disabled"}
+{"event":"balFallback","block":1,"hash":"0x…","parallelError":"…","sequentialResult":"invalid","sequentialError":"…"}
+```
+
+`scheduler` is `bal` when transactions are scheduled from the block's access list and `optimistic`
+when the block has none. A sequential line's `reason` is `disabled` under `--bal-sequential`, or
+`not-path-based` when the world state cannot run transactions in parallel. Under `--workers`, lines
+from different fixtures interleave; `hash` ties each line to its block.
 
 > The Gradle-extracted fixtures live at `ethereum/referencetests/build/execution-spec-tests/fixtures/`
 > (stable) and `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/` (devnet), so you

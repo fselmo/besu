@@ -413,8 +413,16 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
         final Stopwatch timer = Stopwatch.createStarted();
 
+        // The fixture's access list is delivered with the block, as a peer or the consensus
+        // client would deliver it, so it is validated against execution rather than rebuilt. An
+        // expected-invalid block carries it under rlp_decoded, which the spec also reads.
         final BlockImportResult importResult =
-            blockImporter.importBlock(context, block, validationMode, validationMode);
+            blockImporter.importBlock(
+                context,
+                block,
+                validationMode,
+                validationMode,
+                candidateBlock.getBlockAccessList());
 
         timer.stop();
 

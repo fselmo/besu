@@ -169,6 +169,14 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   private boolean jsonArray = false;
 
   @Option(
+      names = {"--bal-sequential"},
+      description =
+          "Run every payload on the sequential block processor. By default the parallel block"
+              + " processor runs, as on a Bonsai node, scheduling transactions from the payload's block"
+              + " access list. The list is validated either way.")
+  private boolean balSequential = false;
+
+  @Option(
       names = {"--verbose"},
       description =
           "Print per-test progress output. By default only failing tests and the final summary are"
@@ -444,7 +452,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           ReferenceTestProtocolSchedules.cached(
                   parentCommand.getEvmConfiguration(),
                   spec.getBlobScheduleOptions().orElse(null),
-                  false)
+                  !balSequential)
               .getByName(spec.getNetwork());
     } catch (final RuntimeException e) {
       recordResult(

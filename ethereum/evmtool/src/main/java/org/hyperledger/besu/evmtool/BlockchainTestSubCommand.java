@@ -477,6 +477,13 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                   e.getMessage());
           parentCommand.out.println(failureReason);
         }
+      } catch (final RuntimeException e) {
+        // Anything else escaping import is a defect, not a rejection: a node rejects a block with
+        // a result, never an exception. Charged to this test, so the rest of the run still runs.
+        testPassed = false;
+        failureReason = "Unexpected exception importing block: " + e;
+        parentCommand.out.println(failureReason);
+        break;
       }
     }
 
@@ -484,7 +491,8 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       return;
     }
 
-    if (!blockchain.getChainHeadHash().equals(spec.getLastBlockHash())) {
+    // An earlier failure already explains the head, so keep its reason.
+    if (testPassed && !blockchain.getChainHeadHash().equals(spec.getLastBlockHash())) {
       testPassed = false;
       failureReason =
           String.format(

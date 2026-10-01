@@ -21,6 +21,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
+import static org.hyperledger.besu.evmtool.EngineTestSubCommand.COMMAND_ALIAS;
 import static org.hyperledger.besu.evmtool.EngineTestSubCommand.COMMAND_NAME;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator;
@@ -119,6 +120,7 @@ import picocli.CommandLine.ParentCommand;
  */
 @Command(
     name = COMMAND_NAME,
+    aliases = COMMAND_ALIAS,
     description = "Execute an Ethereum Engine Test.",
     mixinStandardHelpOptions = true,
     versionProvider = VersionProvider.class)
@@ -126,6 +128,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
 
   /** The name users type to invoke this subcommand, and the value of the picocli command name. */
   public static final String COMMAND_NAME = "engine-test";
+
+  /** The name every client's runner answers to, so one invocation works across clients. */
+  public static final String COMMAND_ALIAS = "enginetest";
 
   /** Process exit code: 0 when all executed tests pass, 1 when any failed. */
   private volatile int exitCode = 0;

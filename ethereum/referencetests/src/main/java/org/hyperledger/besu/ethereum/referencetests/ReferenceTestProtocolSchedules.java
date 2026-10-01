@@ -67,11 +67,17 @@ public class ReferenceTestProtocolSchedules {
           "eip158",
           "eip158tobyzantiumat5");
 
-  /** Guarded by {@link #cached(EvmConfiguration, BlobScheduleOptions)}, which is synchronized. */
+  /**
+   * Guarded by {@link #cached(EvmConfiguration, BlobScheduleOptions, boolean)}, which is
+   * synchronized.
+   */
   private static final Map<CacheKey, ReferenceTestProtocolSchedules> CACHED_SCHEDULES =
       new HashMap<>();
 
-  private record CacheKey(EvmConfiguration evmConfiguration, ObjectNode blobSchedule) {}
+  private record CacheKey(
+      EvmConfiguration evmConfiguration,
+      ObjectNode blobSchedule,
+      boolean isParallelTxProcessingEnabled) {}
 
   public static ReferenceTestProtocolSchedules create() {
     return create(new StubGenesisConfigOptions(), EvmConfiguration.DEFAULT);
@@ -91,11 +97,40 @@ public class ReferenceTestProtocolSchedules {
    */
   public static ReferenceTestProtocolSchedules create(
       final EvmConfiguration evmConfiguration, final BlobScheduleOptions blobScheduleOptions) {
+    return create(evmConfiguration, blobScheduleOptions, false);
+  }
+
+  /**
+   * As {@link #create(EvmConfiguration, BlobScheduleOptions)}, choosing the block processor.
+   *
+   * @param evmConfiguration the EVM configuration
+   * @param blobScheduleOptions the blob schedule from the fixture config, or null for defaults
+   * @param isParallelTxProcessingEnabled build the parallel block processor a Bonsai node runs by
+   *     default, rather than the sequential one
+   * @return the schedules
+   */
+  public static ReferenceTestProtocolSchedules create(
+      final EvmConfiguration evmConfiguration,
+      final BlobScheduleOptions blobScheduleOptions,
+      final boolean isParallelTxProcessingEnabled) {
     final StubGenesisConfigOptions genesisStub = new StubGenesisConfigOptions();
     if (blobScheduleOptions != null) {
       genesisStub.blobScheduleOptions(blobScheduleOptions);
     }
-    return create(genesisStub, evmConfiguration);
+    return create(genesisStub, evmConfiguration, isParallelTxProcessingEnabled);
+  }
+
+  /**
+   * As {@link #cached(EvmConfiguration, BlobScheduleOptions, boolean)}, with the sequential block
+   * processor.
+   *
+   * @param evmConfiguration the EVM configuration
+   * @param blobScheduleOptions the blob schedule from the fixture config, or null for defaults
+   * @return the schedules
+   */
+  public static ReferenceTestProtocolSchedules cached(
+      final EvmConfiguration evmConfiguration, final BlobScheduleOptions blobScheduleOptions) {
+    return cached(evmConfiguration, blobScheduleOptions, false);
   }
 
   /**
@@ -120,21 +155,32 @@ public class ReferenceTestProtocolSchedules {
    *
    * @param evmConfiguration the EVM configuration
    * @param blobScheduleOptions the blob schedule from the fixture config, or null for defaults
+   * @param isParallelTxProcessingEnabled build the parallel block processor a Bonsai node runs by
+   *     default, rather than the sequential one; the two are cached apart
    * @return the schedules
    */
   public static synchronized ReferenceTestProtocolSchedules cached(
-      final EvmConfiguration evmConfiguration, final BlobScheduleOptions blobScheduleOptions) {
+      final EvmConfiguration evmConfiguration,
+      final BlobScheduleOptions blobScheduleOptions,
+      final boolean isParallelTxProcessingEnabled) {
     final ObjectNode key =
         blobScheduleOptions == null
             ? JsonUtil.createEmptyObjectNode()
             : blobScheduleOptions.getConfigRoot().deepCopy();
     return CACHED_SCHEDULES.computeIfAbsent(
-        new CacheKey(evmConfiguration, key),
-        ignored -> create(evmConfiguration, blobScheduleOptions));
+        new CacheKey(evmConfiguration, key, isParallelTxProcessingEnabled),
+        ignored -> create(evmConfiguration, blobScheduleOptions, isParallelTxProcessingEnabled));
   }
 
   public static ReferenceTestProtocolSchedules create(
       final StubGenesisConfigOptions genesisStub, final EvmConfiguration evmConfiguration) {
+    return create(genesisStub, evmConfiguration, false);
+  }
+
+  public static ReferenceTestProtocolSchedules create(
+      final StubGenesisConfigOptions genesisStub,
+      final EvmConfiguration evmConfiguration,
+      final boolean isParallelTxProcessingEnabled) {
     // the following schedules activate EIP-1559, but may have non-default
     if (genesisStub.getBaseFeePerGas().isEmpty()) {
       genesisStub.baseFeePerGas(0x0a);
@@ -143,104 +189,187 @@ public class ReferenceTestProtocolSchedules {
     KZGPointEvalPrecompiledContract.init();
     return new ReferenceTestProtocolSchedules(
         Map.ofEntries(
-                Map.entry("Frontier", createSchedule(genesisStub.clone(), evmConfiguration)),
+                Map.entry(
+                    "Frontier",
+                    createSchedule(
+                        genesisStub.clone(), evmConfiguration, isParallelTxProcessingEnabled)),
                 Map.entry(
                     "FrontierToHomesteadAt5",
-                    createSchedule(genesisStub.clone().homesteadBlock(5), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().homesteadBlock(5),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Homestead",
-                    createSchedule(genesisStub.clone().homesteadBlock(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().homesteadBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "HomesteadToEIP150At5",
                     createSchedule(
-                        genesisStub.clone().homesteadBlock(0).eip150Block(5), evmConfiguration)),
+                        genesisStub.clone().homesteadBlock(0).eip150Block(5),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "HomesteadToDaoAt5",
                     createSchedule(
-                        genesisStub.clone().homesteadBlock(0).daoForkBlock(5), evmConfiguration)),
+                        genesisStub.clone().homesteadBlock(0).daoForkBlock(5),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
-                    "EIP150", createSchedule(genesisStub.clone().eip150Block(0), evmConfiguration)),
+                    "EIP150",
+                    createSchedule(
+                        genesisStub.clone().eip150Block(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
-                    "EIP158", createSchedule(genesisStub.clone().eip158Block(0), evmConfiguration)),
+                    "EIP158",
+                    createSchedule(
+                        genesisStub.clone().eip158Block(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "EIP158ToByzantiumAt5",
                     createSchedule(
-                        genesisStub.clone().eip158Block(0).byzantiumBlock(5), evmConfiguration)),
+                        genesisStub.clone().eip158Block(0).byzantiumBlock(5),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Byzantium",
-                    createSchedule(genesisStub.clone().byzantiumBlock(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().byzantiumBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Constantinople",
-                    createSchedule(genesisStub.clone().constantinopleBlock(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().constantinopleBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "ConstantinopleFix",
-                    createSchedule(genesisStub.clone().petersburgBlock(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().petersburgBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Petersburg",
-                    createSchedule(genesisStub.clone().petersburgBlock(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().petersburgBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Istanbul",
-                    createSchedule(genesisStub.clone().istanbulBlock(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().istanbulBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "MuirGlacier",
-                    createSchedule(genesisStub.clone().muirGlacierBlock(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().muirGlacierBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
-                    "Berlin", createSchedule(genesisStub.clone().berlinBlock(0), evmConfiguration)),
+                    "Berlin",
+                    createSchedule(
+                        genesisStub.clone().berlinBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
-                    "London", createSchedule(genesisStub.clone().londonBlock(0), evmConfiguration)),
+                    "London",
+                    createSchedule(
+                        genesisStub.clone().londonBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "ArrowGlacier",
-                    createSchedule(genesisStub.clone().arrowGlacierBlock(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().arrowGlacierBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "GrayGlacier",
-                    createSchedule(genesisStub.clone().grayGlacierBlock(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().grayGlacierBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Merge",
-                    createSchedule(genesisStub.clone().mergeNetSplitBlock(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().mergeNetSplitBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Paris",
-                    createSchedule(genesisStub.clone().mergeNetSplitBlock(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().mergeNetSplitBlock(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "ParisToShanghaiAtTime15k",
                     createSchedule(
                         genesisStub.clone().mergeNetSplitBlock(0).shanghaiTime(15000),
-                        evmConfiguration)),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Shanghai",
-                    createSchedule(genesisStub.clone().shanghaiTime(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().shanghaiTime(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "ShanghaiToCancunAtTime15k",
                     createSchedule(
-                        genesisStub.clone().shanghaiTime(0).cancunTime(15000), evmConfiguration)),
+                        genesisStub.clone().shanghaiTime(0).cancunTime(15000),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
-                    "Cancun", createSchedule(genesisStub.clone().cancunTime(0), evmConfiguration)),
+                    "Cancun",
+                    createSchedule(
+                        genesisStub.clone().cancunTime(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "CancunToPragueAtTime15k",
                     createSchedule(
-                        genesisStub.clone().cancunTime(0).pragueTime(15000), evmConfiguration)),
+                        genesisStub.clone().cancunTime(0).pragueTime(15000),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
-                    "Prague", createSchedule(genesisStub.clone().pragueTime(0), evmConfiguration)),
+                    "Prague",
+                    createSchedule(
+                        genesisStub.clone().pragueTime(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 // Forks left without an activation time are folded into the first configured
                 // milestone, so each entry only needs to give times to the forks that have to be
                 // told apart (the fork under test and, for transitions, the one it starts from).
                 Map.entry(
                     "PragueToOsakaAtTime15k",
                     createSchedule(
-                        genesisStub.clone().pragueTime(0).osakaTime(15000), evmConfiguration)),
+                        genesisStub.clone().pragueTime(0).osakaTime(15000),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Osaka",
                     createSchedule(
-                        genesisStub.clone().pragueTime(0).osakaTime(0), evmConfiguration)),
+                        genesisStub.clone().pragueTime(0).osakaTime(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "OsakaToBPO1AtTime15k",
                     createSchedule(
                         genesisStub.clone().pragueTime(0).osakaTime(0).bpo1Time(15000),
-                        evmConfiguration)),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "BPO1ToBPO2AtTime15k",
                     createSchedule(
                         genesisStub.clone().pragueTime(0).osakaTime(0).bpo1Time(0).bpo2Time(15000),
-                        evmConfiguration)),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "BPO2ToBPO3AtTime15k",
                     createSchedule(
@@ -251,7 +380,8 @@ public class ReferenceTestProtocolSchedules {
                             .bpo1Time(0)
                             .bpo2Time(0)
                             .bpo3Time(15000),
-                        evmConfiguration)),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "BPO3ToBPO4AtTime15k",
                     createSchedule(
@@ -263,7 +393,8 @@ public class ReferenceTestProtocolSchedules {
                             .bpo2Time(0)
                             .bpo3Time(0)
                             .bpo4Time(15000),
-                        evmConfiguration)),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Amsterdam",
                     createSchedule(
@@ -274,7 +405,8 @@ public class ReferenceTestProtocolSchedules {
                             .bpo1Time(0)
                             .bpo2Time(0)
                             .amsterdamTime(0),
-                        evmConfiguration)),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "BPO2ToAmsterdamAtTime15k",
                     createSchedule(
@@ -285,22 +417,38 @@ public class ReferenceTestProtocolSchedules {
                             .bpo1Time(0)
                             .bpo2Time(0)
                             .amsterdamTime(15000),
-                        evmConfiguration)),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Bogota",
-                    createSchedule(genesisStub.clone().futureEipsTime(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().futureEipsTime(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Polis",
-                    createSchedule(genesisStub.clone().futureEipsTime(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().futureEipsTime(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Bangkok",
-                    createSchedule(genesisStub.clone().futureEipsTime(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().futureEipsTime(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Future_EIPs",
-                    createSchedule(genesisStub.clone().futureEipsTime(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub.clone().futureEipsTime(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)),
                 Map.entry(
                     "Experimental_EIPs",
-                    createSchedule(genesisStub.clone().experimentalEipsTime(0), evmConfiguration)))
+                    createSchedule(
+                        genesisStub.clone().experimentalEipsTime(0),
+                        evmConfiguration,
+                        isParallelTxProcessingEnabled)))
             .entrySet()
             .stream()
             .map(e -> Map.entry(e.getKey().toLowerCase(Locale.ROOT), e.getValue()))
@@ -328,7 +476,9 @@ public class ReferenceTestProtocolSchedules {
   }
 
   private static ProtocolSchedule createSchedule(
-      final GenesisConfigOptions options, final EvmConfiguration evmConfiguration) {
+      final GenesisConfigOptions options,
+      final EvmConfiguration evmConfiguration,
+      final boolean isParallelTxProcessingEnabled) {
     return new ProtocolScheduleBuilder(
             options,
             Optional.of(CHAIN_ID),
@@ -337,7 +487,7 @@ public class ReferenceTestProtocolSchedules {
             evmConfiguration,
             MiningConfiguration.MINING_DISABLED,
             new BadBlockManager(),
-            false,
+            isParallelTxProcessingEnabled,
             BalConfiguration.DEFAULT,
             new NoOpMetricsSystem())
         .createProtocolSchedule();

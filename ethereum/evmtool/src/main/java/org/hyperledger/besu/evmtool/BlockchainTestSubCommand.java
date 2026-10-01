@@ -156,6 +156,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       description = "Verbose logs, listing all skipped tests")
   private final Boolean verbose = false;
 
+  @Option(
+      names = {"--bal-sequential"},
+      description =
+          "Run every block on the sequential block processor. By default the parallel block"
+              + " processor runs, as on a Bonsai node, scheduling transactions from the block's block"
+              + " access list. The list is validated either way.")
+  private boolean balSequential = false;
+
   @ParentCommand private final EvmToolCommand parentCommand;
 
   // picocli does it magically
@@ -347,7 +355,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     // test is validated against the wrong parameters.
     final ProtocolSchedule schedule =
         ReferenceTestProtocolSchedules.cached(
-                parentCommand.getEvmConfiguration(), spec.getBlobScheduleOptions().orElse(null))
+                parentCommand.getEvmConfiguration(),
+                spec.getBlobScheduleOptions().orElse(null),
+                !balSequential)
             .getByName(spec.getNetwork());
 
     BlockTestTracerManager tracerManager = null;

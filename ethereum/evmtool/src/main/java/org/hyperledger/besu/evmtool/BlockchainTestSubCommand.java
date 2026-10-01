@@ -56,6 +56,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.io.Writer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -141,6 +143,8 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       names = {"--json-array"},
       description = "Output results as a JSON array: name, pass, fork, lastBlockHash, error.")
   private boolean jsonArray = false;
+
+  private static final PrintWriter DISCARDED_OUTPUT = new PrintWriter(Writer.nullWriter());
 
   private final List<ObjectNode> jsonArrayResults = Collections.synchronizedList(new ArrayList<>());
 
@@ -284,12 +288,12 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                   // too, and testing the wrong field silently runs the whole tree unfiltered.
                   if (nameFilter != null && !matchesTestName(test)) {
                     if (verbose) {
-                      parentCommand.out.println("Skipping test: " + test);
+                      progressOut().println("Skipping test: " + test);
                     }
                     return false;
                   }
                   if (verbose) {
-                    parentCommand.out.println("Considering " + test);
+                    progressOut().println("Considering " + test);
                   }
                   return true;
                 })
@@ -297,7 +301,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     int repeatCount = Math.max(1, parentCommand.getRepeatCount());
     for (int i = 0; i < repeatCount; i++) {
       boolean isLastIteration = (i == repeatCount - 1);
-      parentCommand.out.println("Running iteration " + i);
+      progressOut().println("Running iteration " + i);
       filteredTests.forEach(
           (testName, spec) -> traceTestSpecs(testName, spec, results, isLastIteration));
     }
@@ -327,6 +331,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     executeBlockchainTest(blockchainTests, results);
   }
 
+  /**
+   * Where per-test progress goes: stdout, except under {@code --json-array}, whose stdout is the
+   * array alone so that it parses.
+   */
+  private PrintWriter progressOut() {
+    return jsonArray ? DISCARDED_OUTPUT : parentCommand.out;
+  }
+
   private boolean matchesTestName(final String test) {
     return nameFilter.matches(test);
   }
@@ -337,7 +349,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       final FixtureRunner.TestResults results,
       final boolean isLastIteration) {
     if (isLastIteration) {
-      parentCommand.out.println("Running " + test);
+      progressOut().println("Running " + test);
     }
     final MutableBlockchain blockchain = spec.buildBlockchain();
     final ProtocolContext context =
@@ -393,7 +405,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             new BlockchainTestTracerProvider(tracerManager);
         serviceManager.addService(BlockImportTracerProvider.class, tracerProvider);
       } catch (final IOException e) {
-        parentCommand.out.println("Failed to open trace output: " + e.getMessage());
+        progressOut().println("Failed to open trace output: " + e.getMessage());
         return;
       }
     }
@@ -450,20 +462,22 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                   block.getHeader().getNumber(),
                   block.getHash(),
                   importResult.isImported() ? "Failed to be rejected" : "Failed to import");
-          parentCommand.out.println(failureReason);
+          progressOut().println(failureReason);
         } else {
           if (importResult.isImported()) {
             final long gasUsed = block.getHeader().getGasUsed();
             final long timeNs = timer.elapsed(TimeUnit.NANOSECONDS);
             final float mGps = gasUsed * 1000.0f / timeNs;
             final double timeMs = timeNs / 1_000_000.0;
-            parentCommand.out.printf(
-                "Block %d (%s) Imported in %.2f ms (%.2f MGas/s)%n",
-                block.getHeader().getNumber(), block.getHash(), timeMs, mGps);
+            progressOut()
+                .printf(
+                    "Block %d (%s) Imported in %.2f ms (%.2f MGas/s)%n",
+                    block.getHeader().getNumber(), block.getHash(), timeMs, mGps);
           } else {
-            parentCommand.out.printf(
-                "Block %d (%s) Rejected (correctly)%n",
-                block.getHeader().getNumber(), block.getHash());
+            progressOut()
+                .printf(
+                    "Block %d (%s) Rejected (correctly)%n",
+                    block.getHeader().getNumber(), block.getHash());
           }
         }
       } catch (final RLPException e) {
@@ -475,14 +489,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                   candidateBlock.getBlock().getHeader().getNumber(),
                   candidateBlock.getBlock().getHash(),
                   e.getMessage());
-          parentCommand.out.println(failureReason);
+          progressOut().println(failureReason);
         }
       } catch (final RuntimeException e) {
         // Anything else escaping import is a defect, not a rejection: a node rejects a block with
         // a result, never an exception. Charged to this test, so the rest of the run still runs.
         testPassed = false;
         failureReason = "Unexpected exception importing block: " + e;
-        parentCommand.out.println(failureReason);
+        progressOut().println(failureReason);
         break;
       }
     }
@@ -498,12 +512,13 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
           String.format(
               "Chain header mismatch, have %s want %s",
               blockchain.getChainHeadHash(), spec.getLastBlockHash());
-      parentCommand.out.printf(
-          "Chain header mismatch, have %s want %s%n",
-          blockchain.getChainHeadHash(), spec.getLastBlockHash());
+      progressOut()
+          .printf(
+              "Chain header mismatch, have %s want %s%n",
+              blockchain.getChainHeadHash(), spec.getLastBlockHash());
     } else {
       if (verbose) {
-        parentCommand.out.println("Chain import successful");
+        progressOut().println("Chain import successful");
       }
     }
 
@@ -543,12 +558,11 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       if (worldState
           .streamAccounts(Bytes32.ZERO, Integer.MAX_VALUE)
           .anyMatch(AccountState::isEmpty)) {
-        parentCommand.out.println("Journaled account configured and empty account detected");
+        progressOut().println("Journaled account configured and empty account detected");
       }
 
       if (EvmSpecVersion.SPURIOUS_DRAGON.compareTo(evm.getEvmVersion()) > 0) {
-        parentCommand.out.println(
-            "Journaled account configured and fork prior to the merge specified");
+        progressOut().println("Journaled account configured and fork prior to the merge specified");
       }
     }
   }

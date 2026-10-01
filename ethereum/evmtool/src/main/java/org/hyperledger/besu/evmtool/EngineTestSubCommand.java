@@ -180,6 +180,14 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   private boolean balSequential = false;
 
   @Option(
+      names = {"--bal-report"},
+      description =
+          "Print one JSON line to stderr for each payload executed, naming the executor that ran it,"
+              + " and one more when the parallel block processor failed it and re-ran it"
+              + " sequentially. Off by default.")
+  private boolean balReport = false;
+
+  @Option(
       names = {"--verbose"},
       description =
           "Print per-test progress output. By default only failing tests and the final summary are"
@@ -222,7 +230,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     }
 
     boolean setupFailed = false;
-    BalExecutionReporter.install();
+    if (balReport) {
+      BalExecutionReporter.install();
+    }
     try {
       if (engineTestFiles.isEmpty()) {
         final BufferedReader in =
@@ -258,7 +268,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       setupFailed = true;
       System.err.println("Error: " + e.getMessage());
     } finally {
-      BalExecutionReporter.uninstall();
+      if (balReport) {
+        BalExecutionReporter.uninstall();
+      }
       // An empty run is not a pass: a typo in --test-name, or a fixture tree that failed to
       // materialise, would otherwise be indistinguishable from a clean sweep.
       boolean ranNothing = false;

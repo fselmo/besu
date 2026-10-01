@@ -173,6 +173,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               + " access list. The list is validated either way.")
   private boolean balSequential = false;
 
+  @Option(
+      names = {"--bal-report"},
+      description =
+          "Print one JSON line to stderr for each block executed, naming the executor that ran it,"
+              + " and one more when the parallel block processor failed it and re-ran it"
+              + " sequentially. Off by default.")
+  private boolean balReport = false;
+
   @ParentCommand private final EvmToolCommand parentCommand;
 
   // picocli does it magically
@@ -221,7 +229,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     }
 
     boolean setupFailed = false;
-    BalExecutionReporter.install();
+    if (balReport) {
+      BalExecutionReporter.install();
+    }
     try {
       if (blockchainTestFiles.isEmpty()) {
         // if no files were specified, use standard input to get filenames
@@ -263,7 +273,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       System.err.println("Error: " + e.getMessage());
       e.printStackTrace(System.err);
     } finally {
-      BalExecutionReporter.uninstall();
+      if (balReport) {
+        BalExecutionReporter.uninstall();
+      }
       // Fail an empty run, so a typo in --test-name or a fixture tree that did not materialise
       // cannot be mistaken for a clean sweep. Not printed under --json-array, where that output is
       // parsed and only the array belongs.

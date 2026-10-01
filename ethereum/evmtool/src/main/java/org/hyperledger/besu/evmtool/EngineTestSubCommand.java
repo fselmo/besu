@@ -24,6 +24,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGH
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 import static org.hyperledger.besu.evmtool.EngineTestSubCommand.COMMAND_NAME;
 
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
@@ -58,15 +59,28 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttr
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncAlgorithmFactory;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
+import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.referencetests.EngineTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
+import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProvider;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
+import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -86,6 +100,7 @@ import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.annotations.VisibleForTesting;
 import io.vertx.core.Vertx;
 import org.apache.tuweni.bytes.Bytes;
 import org.jspecify.annotations.Nullable;
@@ -453,6 +468,40 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     }
   }
 
+  /**
+   * Builds the node's own {@link MergeCoordinator} for one test's chain, so newPayload and
+   * forkchoiceUpdated store, validate and move the head exactly as they do on a node.
+   *
+   * <p>Backward sync is wired but never starts: the merge context never reports initial sync as
+   * done, and there are no peers. No transaction pool is given because no forkchoiceUpdated here
+   * carries payload attributes, so no block is ever built.
+   */
+  private static MergeCoordinator newMergeCoordinator(
+      final ProtocolContext context, final ProtocolSchedule schedule) {
+    final BackwardSyncContext backwardSyncContext =
+        new BackwardSyncContext(
+            context,
+            schedule,
+            SynchronizerConfiguration.builder().build(),
+            EngineHarness.METRICS,
+            new EthContext(EngineHarness.PEERS, new EthMessages(), EngineHarness.SCHEDULER, null),
+            new SyncState(context.getBlockchain(), EngineHarness.PEERS),
+            BackwardChain.from(
+                new KeyValueStorageProvider(
+                    SegmentedInMemoryKeyValueStorage::new,
+                    new InMemoryKeyValueStorage(),
+                    EngineHarness.METRICS),
+                ScheduleBasedBlockHeaderFunctions.create(schedule)),
+            new BackwardSyncAlgorithmFactory());
+    return new MergeCoordinator(
+        context,
+        schedule,
+        EngineHarness.SCHEDULER,
+        null,
+        MiningConfiguration.newDefault(),
+        backwardSyncContext);
+  }
+
   /** The engine replay proper, with {@code context} owned (and released) by the caller. */
   private void runAgainstEngine(
       final String test,
@@ -465,8 +514,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     // Use shared static instances to avoid thread exhaustion across tests. Recorded so run() knows
     // whether there is anything to shut down without touching the holder and initialising it.
     harnessUsed = true;
-    final EvmToolMergeCoordinator coordinator =
-        new EvmToolMergeCoordinator(context, schedule, EngineHarness.SCHEDULER);
+    final MergeCoordinator coordinator = newMergeCoordinator(context, schedule);
 
     // Lazily create engine methods — most tests use only 1-2 versions, not all 9
     final ExecutionEngineJsonRpcMethod.ConstructorArguments ctorArgs =
@@ -580,22 +628,11 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       return;
     }
     try {
-      final var fcuParam =
-          new ForkchoiceStateV1(
-              spec.getGenesisBlockHeader().getHash(),
-              spec.getGenesisBlockHeader().getHash(),
-              spec.getGenesisBlockHeader().getHash());
-      final JsonRpcResponse fcuResponse =
-          initialFcu.syncResponse(
-              new JsonRpcRequestContext(
-                  new JsonRpcRequest(
-                      "2.0",
-                      "engine_forkchoiceUpdatedV" + initialFcuVersion,
-                      new Object[] {fcuParam, null})));
-      if (fcuResponse instanceof JsonRpcErrorResponse err) {
+      final String fcuFailure =
+          forkchoiceFailure(initialFcu, initialFcuVersion, spec.getGenesisBlockHeader().getHash());
+      if (fcuFailure != null) {
         testPassed = false;
-        failureReason =
-            "Initial FCU error: " + err.getError().getCode() + " " + err.getError().getMessage();
+        failureReason = "Initial FCU " + fcuFailure;
       }
     } catch (final Exception e) {
       testPassed = false;
@@ -731,27 +768,14 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
                     "payload %d: unsupported forkchoiceUpdated version %d", i, fcuVersion);
             break;
           }
-          final var fcuParam =
-              new ForkchoiceStateV1(
-                  Hash.fromHexString(blockHash),
-                  Hash.fromHexString(blockHash),
-                  Hash.fromHexString(blockHash));
-          final JsonRpcResponse fcuResponse =
-              fcuMethod.syncResponse(
-                  new JsonRpcRequestContext(
-                      new JsonRpcRequest(
-                          "2.0",
-                          "engine_forkchoiceUpdatedV" + fcuVersion,
-                          new Object[] {fcuParam, null})));
-          if (fcuResponse instanceof JsonRpcErrorResponse fcuErr) {
+          final String fcuFailure =
+              forkchoiceFailure(fcuMethod, fcuVersion, Hash.fromHexString(blockHash));
+          if (fcuFailure != null) {
             testPassed = false;
-            failureReason =
-                String.format(
-                    "payload %d: FCU error: %d %s",
-                    i, fcuErr.getError().getCode(), fcuErr.getError().getMessage());
+            failureReason = String.format("payload %d: FCU %s", i, fcuFailure);
             break;
           }
-          if (verbose && fcuResponse instanceof JsonRpcSuccessResponse) {
+          if (verbose) {
             parentCommand.out.printf("Payload %d: FCU VALID%n", i);
           }
         } else {
@@ -817,6 +841,38 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         testPassed ? "" : failureReason,
         lastPayloadStatus,
         results);
+  }
+
+  /**
+   * Makes {@code head} the chain head the way hive's consume-engine does: safe and finalized left
+   * at zero, no payload attributes, and anything but a VALID status is a failure.
+   *
+   * @return {@code null} when the update is VALID, otherwise why it is not
+   */
+  @VisibleForTesting
+  static @Nullable String forkchoiceFailure(
+      final ExecutionEngineJsonRpcMethod fcuMethod, final int version, final Hash head) {
+    final JsonRpcResponse response =
+        fcuMethod.syncResponse(
+            new JsonRpcRequestContext(
+                new JsonRpcRequest(
+                    "2.0",
+                    "engine_forkchoiceUpdatedV" + version,
+                    new Object[] {new ForkchoiceStateV1(head, Hash.ZERO, Hash.ZERO), null})));
+    if (response instanceof JsonRpcErrorResponse err) {
+      return "error: " + err.getError().getCode() + " " + err.getError().getMessage();
+    }
+    final PayloadStatusV1 status =
+        ((ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult())
+            .getPayloadStatus();
+    if (!VALID.equals(status.getStatus())) {
+      return "status: expected VALID, got "
+          + status.getStatus()
+          + " (err: "
+          + status.getError()
+          + ")";
+    }
+    return null;
   }
 
   /** Records an outcome reached before any payload was replayed, so with no engine status yet. */

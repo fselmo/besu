@@ -366,8 +366,9 @@ without the flag nothing of it is printed.
 
 `scheduler` is `bal` when transactions are scheduled from the block's access list and `optimistic`
 when the block has none. A sequential line's `reason` is `disabled` under `--bal-sequential`, or
-`not-path-based` when the world state cannot run transactions in parallel. Under `--workers`, lines
-from different fixtures interleave; `hash` ties each line to its block.
+`not-path-based` when the world state cannot run transactions in parallel. When `block-test` dropped
+the block's access list, `reason` is `bad-access-list` on either path and in either mode. Under
+`--workers`, lines from different fixtures interleave; `hash` ties each line to its block.
 
 > The Gradle-extracted fixtures live at
 > `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/`, so you can point the binary

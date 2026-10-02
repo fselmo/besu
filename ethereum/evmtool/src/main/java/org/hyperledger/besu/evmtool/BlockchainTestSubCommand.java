@@ -456,13 +456,15 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         // passes the same gate: used only when it hashes to the header's commitment, otherwise
         // dropped and the block judged on its header. An expected-invalid block carries it under
         // rlp_decoded, which the spec also reads.
+        final Optional<BlockAccessList> delivered = candidateBlock.getBlockAccessList();
+        final Optional<BlockAccessList> accessList =
+            accessListMatchingHeader(delivered, block.getHeader());
         final BlockImportResult importResult =
-            blockImporter.importBlock(
-                context,
-                block,
-                validationMode,
-                validationMode,
-                accessListMatchingHeader(candidateBlock.getBlockAccessList(), block.getHeader()));
+            BalExecutionReporter.importing(
+                delivered.isPresent() && accessList.isEmpty(),
+                () ->
+                    blockImporter.importBlock(
+                        context, block, validationMode, validationMode, accessList));
 
         timer.stop();
 

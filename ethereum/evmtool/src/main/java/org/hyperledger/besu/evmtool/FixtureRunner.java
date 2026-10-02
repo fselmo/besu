@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.evmtool;
 
+import org.hyperledger.besu.datatypes.Hash;
+
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -24,6 +26,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -34,6 +37,7 @@ import java.util.stream.Stream;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
@@ -155,6 +159,34 @@ final class FixtureRunner {
    */
   static ObjectNode newResultNode() {
     return JSON_ARRAY_MAPPER.createObjectNode();
+  }
+
+  /**
+   * Creates the {@code rejections} array of a result row: one entry per block or payload the client
+   * rejected, carrying the client's own error text. Checking that error against the fixture's
+   * expected exception is left to the consumer, which maps each client's messages.
+   *
+   * @return an empty array node
+   */
+  static ArrayNode newRejections() {
+    return JSON_ARRAY_MAPPER.createArrayNode();
+  }
+
+  /**
+   * Adds a rejected block or payload to a result row's {@code rejections}.
+   *
+   * @param rejections the row's rejections
+   * @param index the block's position in the fixture's {@code blocks}, or the payload's in {@code
+   *     engineNewPayloads}
+   * @param hash the rejected block's hash, when the client computed one
+   * @param error the client's error, verbatim
+   */
+  static void addRejection(
+      final ArrayNode rejections, final int index, final Optional<Hash> hash, final String error) {
+    final ObjectNode rejection = rejections.addObject();
+    rejection.put("index", index);
+    hash.ifPresent(h -> rejection.put("hash", h.toHexString()));
+    rejection.put("error", error);
   }
 
   /**

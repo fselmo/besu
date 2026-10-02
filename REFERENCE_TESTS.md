@@ -317,7 +317,12 @@ $EVM block-test  --workers 8 <path-to>/blockchain_tests/           # consume-rlp
 A directory argument is walked recursively and spread over `--workers` workers. `--test-name-regex`
 is the raw form of `-PsimLimit` and takes the same expression (`.*(7928|8282).*`); `--test-name` is
 the glob form described above. `--json-array` emits machine-readable results (`[{name, pass, fork,
-lastBlockHash, error}]`) and nothing else, so the exit code is what reports an empty or failed run.
+lastBlockHash, error, rejections}]`) and nothing else, so the exit code is what reports an empty or
+failed run. `rejections` lists every block or payload Besu rejected, as
+`{"index": <position in blocks or engineNewPayloads>, "hash": "0x…", "error": "<Besu's error>"}`,
+with the error verbatim (a JSON-RPC error as `<code>: <message>`, then `: <data>` when it has
+data) and no `hash` when Besu computed none. `block-test` does not check that error against the
+fixture's expected exception; a consumer such as EEST's `consume` does, through its Besu mapper.
 
 A single fixture file can also be piped in as `stdin`, which all three subcommands accept:
 

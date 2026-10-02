@@ -33,14 +33,20 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.PrintWriter;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import picocli.CommandLine;
 
 class EngineTestSubCommandTest {
@@ -51,6 +57,82 @@ class EngineTestSubCommandTest {
   private static final Path FIXTURE =
       Path.of(
           EngineTestSubCommandTest.class.getResource("bal-self-transfer-engine.json").getPath());
+
+  /** An Amsterdam engine fixture whose payload is INVALID for an access list missing an entry. */
+  private static final Path INVALID_ACCESS_LIST =
+      Path.of(
+          EngineTestSubCommandTest.class
+              .getResource("bal-invalid-block-access-list-engine.json")
+              .getPath());
+
+  private static final String INVALID_BLOCK_HASH =
+      "0xe07099693533f8c5b69f1030a1932f538ae19e0631dd9951d6d0a210950d8bbb";
+
+  @TempDir Path tempDir;
+
+  @ParameterizedTest(name = "--bal-sequential={0}")
+  @ValueSource(booleans = {false, true})
+  void invalidPayloadIsReportedWithBesusError(final boolean sequential) throws IOException {
+    final JsonNode result = result(INVALID_ACCESS_LIST, sequential);
+
+    assertThat(result.get("pass").asBoolean()).isTrue();
+    assertThat(result.get("rejections")).hasSize(1);
+    final JsonNode rejection = result.get("rejections").get(0);
+    assertThat(rejection.get("index").asInt()).isZero();
+    assertThat(rejection.get("hash").asText()).isEqualTo(INVALID_BLOCK_HASH);
+    assertThat(rejection.get("error").asText()).contains("Block access list hash mismatch");
+  }
+
+  @Test
+  void payloadRejectedForAnotherReasonStillFailsEngineTestsOwnCheck() throws IOException {
+    final Path otherReason =
+        withFirstPayload(
+            payload ->
+                payload.put("validationError", "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS"));
+
+    final JsonNode result = result(otherReason, false);
+
+    assertThat(result.get("pass").asBoolean()).isFalse();
+    assertThat(result.get("rejections").get(0).get("error").asText())
+        .contains("Block access list hash mismatch");
+  }
+
+  @Test
+  void payloadRejectedWithAJsonRpcErrorIsReportedWithItsCodeMessageAndData() throws IOException {
+    final Path wrongVersion =
+        withFirstPayload(
+            payload -> {
+              payload.put("newPayloadVersion", "4");
+              payload.remove("validationError");
+              payload.put("errorCode", "-32602");
+            });
+
+    final JsonNode result = result(wrongVersion, false);
+
+    assertThat(result.get("pass").asBoolean()).isTrue();
+    assertThat(result.get("rejections")).hasSize(1);
+    final JsonNode rejection = result.get("rejections").get(0);
+    assertThat(rejection.get("index").asInt()).isZero();
+    assertThat(rejection.has("hash")).isFalse();
+    // Code, message, then the error's data, which names the parameter Besu could not decode.
+    assertThat(rejection.get("error").asText())
+        .startsWith("-32602: Invalid engine payload parameter: ")
+        .contains("Failed to decode block parameter");
+  }
+
+  @Test
+  void testEndedBeforeAnyPayloadHasNoRejections() throws IOException {
+    final ObjectNode fixture = (ObjectNode) MAPPER.readTree(INVALID_ACCESS_LIST.toFile());
+    ((ObjectNode) fixture.elements().next()).put("network", "NoSuchFork");
+    final Path unsupported = tempDir.resolve("unsupported.json");
+    Files.writeString(unsupported, MAPPER.writeValueAsString(fixture));
+
+    final JsonNode result = result(unsupported, false);
+
+    assertThat(result.get("pass").asBoolean()).isFalse();
+    assertThat(result.get("rejections").isArray()).isTrue();
+    assertThat(result.get("rejections")).isEmpty();
+  }
 
   @Test
   void balReportPrintsTheDecisionLineOnStderr() throws IOException {
@@ -101,6 +183,23 @@ class EngineTestSubCommandTest {
     final ExecutionEngineJsonRpcMethod forkchoiceUpdated = mock(ExecutionEngineJsonRpcMethod.class);
     when(forkchoiceUpdated.syncResponse(any())).thenReturn(response);
     return EngineTestSubCommand.forkchoiceFailure(forkchoiceUpdated, 4, Hash.ZERO);
+  }
+
+  private Path withFirstPayload(final Consumer<ObjectNode> change) throws IOException {
+    final ObjectNode fixture = (ObjectNode) MAPPER.readTree(INVALID_ACCESS_LIST.toFile());
+    change.accept((ObjectNode) fixture.elements().next().get("engineNewPayloads").get(0));
+    final Path changed = tempDir.resolve("changed.json");
+    Files.writeString(changed, MAPPER.writeValueAsString(fixture));
+    return changed;
+  }
+
+  private static JsonNode result(final Path fixture, final boolean sequential) throws IOException {
+    final List<String> args = new ArrayList<>(List.of("--json-array"));
+    if (sequential) {
+      args.add("--bal-sequential");
+    }
+    args.add(fixture.toString());
+    return MAPPER.readTree(run(args.toArray(String[]::new))).get(0);
   }
 
   private static String run(final String... args) {

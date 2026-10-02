@@ -16,6 +16,7 @@ package org.hyperledger.besu.evmtool;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -124,6 +125,38 @@ class BlockchainTestSubCommandTest {
   @Test
   void withoutBalReportNoEventLineIsPrinted() {
     assertThat(eventLines(stderr("--json-array", FIXTURE.toString()))).isEmpty();
+  }
+
+  @Test
+  void missingPathFailsBeforeAnyTestRuns() {
+    assertFailsBeforeAnyTestRuns(tempDir.resolve("does-not-exist.json"));
+  }
+
+  @Test
+  void unreadablePathFailsBeforeAnyTestRuns() throws IOException {
+    final Path unreadable = Files.copy(FIXTURE, tempDir.resolve("unreadable.json"));
+    assumeTrue(unreadable.toFile().setReadable(false) && !Files.isReadable(unreadable));
+    assertFailsBeforeAnyTestRuns(unreadable);
+  }
+
+  private static void assertFailsBeforeAnyTestRuns(final Path badPath) {
+    final ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+    final PrintStream originalErr = System.err;
+    final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    final BlockchainTestSubCommand blockTest =
+        new BlockchainTestSubCommand(
+            new EvmToolCommand(System.in, new PrintWriter(stdout, true, UTF_8)));
+    new CommandLine(blockTest).parseArgs("--json-array", FIXTURE.toString(), badPath.toString());
+    System.setErr(new PrintStream(stderr, true, UTF_8));
+    try {
+      blockTest.run();
+    } finally {
+      System.setErr(originalErr);
+    }
+
+    assertThat(blockTest.getExitCode()).isEqualTo(1);
+    assertThat(stdout.toString(UTF_8).trim()).isEqualTo("[]");
+    assertThat(stderr.toString(UTF_8)).contains(badPath.toString());
   }
 
   private static JsonNode decisionLine(final Path fixture, final boolean sequential)

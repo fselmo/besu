@@ -68,7 +68,8 @@ final class FixtureRunner {
    *
    * @param paths the paths given on the command line
    * @return the {@code .json} fixture files to run, directories expanded and sorted
-   * @throws IOException if a path resolves to nothing, or a directory cannot be walked
+   * @throws IOException if a path resolves to nothing, a directory cannot be walked, or a file
+   *     cannot be read
    */
   static List<Path> collectFiles(final List<Path> paths) throws IOException {
     final List<Path> files = new ArrayList<>();
@@ -89,6 +90,12 @@ final class FixtureRunner {
         // An empty file list means "read filenames from stdin", so dropping an unresolvable path
         // here would leave the command blocked on stdin instead of reporting the bad path.
         throw new FileNotFoundException("File not found: " + path);
+      }
+    }
+    // Fail before any test runs rather than skip a file mid-run.
+    for (final Path file : files) {
+      if (!"stdin".equals(file.toString()) && !Files.isReadable(file)) {
+        throw new IOException("File not readable: " + file);
       }
     }
     return files;

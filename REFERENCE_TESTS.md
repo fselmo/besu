@@ -279,9 +279,11 @@ L='.*(7928|8282).*'
 
 Running both is worth the extra minute: where they disagree, the difference is Engine API behaviour
 rather than block validity — a payload the engine should have rejected with a JSON-RPC error code,
-or an `INVALID` whose validation error does not map to the exception the fixture names. Those are
-exactly the failures neither `consumeRlpTests` nor `referenceTests` can see, and they are the reason
-the engine runner exists.
+or an `INVALID` whose message only `engine_newPayload` produces and does not map to the exception
+the fixture names. Those are exactly the failures neither `consumeRlpTests` nor `referenceTests` can
+see, and they are the reason the engine runner exists. Both runners fail a block rejected for a
+reason other than the one the fixture names, through the mapping in
+`ethereum/referencetests/src/main/resources/block-exception-mapping.json`.
 
 ### Fixture version
 

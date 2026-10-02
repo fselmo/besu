@@ -1,5 +1,5 @@
 {
-  "_comment": "Maps execution-spec-tests exception keys to the Besu error-message patterns that condition produces. The top-level 'substring' and 'regex' sections cover validateAndProcessBlock, and are used by both the JUnit reference tests and evmtool's engine-test; the 'engine' section at the bottom adds the messages only the Engine API emits. Organized by validation stage. Source: https://github.com/ethereum/execution-specs (clis/besu.py)",
+  "_comment": "Maps execution-spec-tests exception keys to the Besu error-message patterns that condition produces. The top-level 'substring' and 'regex' sections cover validateAndProcessBlock, and are used by both the JUnit reference tests and evmtool's engine-test; the 'engine' section at the bottom adds the messages only the Engine API emits. Organized by validation stage. Source: https://github.com/ethereum/execution-specs (clis/besu.py); every exception that file maps is mapped here, last checked against forks/amsterdam at 2645291933b12217b56e8736207677e84e1744df.",
 
   "substring": {
 

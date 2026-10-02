@@ -477,6 +477,10 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
           totalTxCount += block.getBody().getTransactions().size();
         }
 
+        final Optional<String> wrongReason =
+            importResult.isImported()
+                ? Optional.empty()
+                : wrongReason(candidateBlock, importResult.getErrorMessage());
         if (importResult.isImported() != candidateBlock.isValid()) {
           testPassed = false;
           failureReason =
@@ -485,6 +489,13 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                   block.getHeader().getNumber(),
                   block.getHash(),
                   importResult.isImported() ? "Failed to be rejected" : "Failed to import");
+          progressOut().println(failureReason);
+        } else if (wrongReason.isPresent()) {
+          testPassed = false;
+          failureReason =
+              String.format(
+                  "Block %d (%s) rejected for the wrong reason: %s",
+                  block.getHeader().getNumber(), block.getHash(), wrongReason.get());
           progressOut().println(failureReason);
         } else {
           if (importResult.isImported()) {
@@ -513,6 +524,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                   candidateBlock.getBlock().getHash(),
                   e.getMessage());
           progressOut().println(failureReason);
+        } else {
+          final Optional<String> wrongReason =
+              wrongReason(candidateBlock, Optional.ofNullable(e.getMessage()));
+          if (wrongReason.isPresent()) {
+            testPassed = false;
+            failureReason = "Block RLP rejected for the wrong reason: " + wrongReason.get();
+            progressOut().println(failureReason);
+          }
         }
       } catch (final RuntimeException e) {
         // Anything else escaping import is a defect, not a rejection: a node rejects a block with
@@ -588,6 +607,20 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         progressOut().println("Journaled account configured and fork prior to the merge specified");
       }
     }
+  }
+
+  /**
+   * Checks the error an expected-invalid block was rejected with against its {@code
+   * expectException}, through Besu's mapping from its errors to the fixtures' exception names.
+   *
+   * @return why the error does not match, or empty when it does or no exception is named
+   */
+  private static Optional<String> wrongReason(
+      final BlockchainReferenceTestCaseSpec.CandidateBlock candidateBlock,
+      final Optional<String> error) {
+    return candidateBlock
+        .getExpectedException()
+        .map(expected -> ExpectedExceptionCheck.importMismatch(expected, error.orElse(null)));
   }
 
   /**

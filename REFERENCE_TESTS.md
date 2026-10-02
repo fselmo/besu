@@ -334,9 +334,14 @@ names other clients' runners answer to.
 
 #### Parallel and sequential execution
 
-`block-test` and `engine-test` run blocks on the parallel block processor, as a Bonsai node does,
-and deliver each block's access list so it is validated against execution. `--bal-sequential` runs
-every block on the sequential block processor instead; the access list is validated either way.
+`block-test` and `engine-test` run blocks on the parallel block processor, as a Bonsai node does.
+`--bal-sequential` runs every block on the sequential block processor instead.
+
+`engine-test` takes each block's access list from the payload, where a list that does not match
+execution makes the payload invalid. `block-test` delivers the fixture's list beside the block, as a
+peer does during sync, and uses it only when it hashes to the header's `blockAccessListHash`;
+otherwise it drops the list and the block runs without one, judged on its header alone. Both hold
+in either mode.
 
 With `--bal-report`, both print one JSON line to stderr for each block they execute, naming the
 executor that ran it, and one more when the parallel processor failed a block and re-ran it
@@ -351,8 +356,9 @@ without the flag nothing of it is printed.
 
 `scheduler` is `bal` when transactions are scheduled from the block's access list and `optimistic`
 when the block has none. A sequential line's `reason` is `disabled` under `--bal-sequential`, or
-`not-path-based` when the world state cannot run transactions in parallel. Under `--workers`, lines
-from different fixtures interleave; `hash` ties each line to its block.
+`not-path-based` when the world state cannot run transactions in parallel. When `block-test` dropped
+the block's access list, `reason` is `bad-access-list` on either path and in either mode. Under
+`--workers`, lines from different fixtures interleave; `hash` ties each line to its block.
 
 > The Gradle-extracted fixtures live at `ethereum/referencetests/build/execution-spec-tests/fixtures/`
 > (stable) and `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/` (devnet), so you

@@ -54,9 +54,31 @@ class BlockchainTestSubCommandTest {
 
   @ParameterizedTest(name = "--bal-sequential={0}")
   @ValueSource(booleans = {false, true})
-  void deliveredAccessListIsValidatedAgainstExecution(final boolean sequential) throws IOException {
+  void accessListNotMatchingTheHeaderIsDroppedNotRejected(final boolean sequential)
+      throws IOException {
     assertThat(passes(FIXTURE, sequential)).isTrue();
-    assertThat(passes(withLastAccessListAccountDropped(), sequential)).isFalse();
+    assertThat(passes(withLastAccessListAccountDropped(), sequential)).isTrue();
+  }
+
+  @Test
+  void droppedAccessListRunsOnTheOptimisticScheduler() throws IOException {
+    final JsonNode delivered = decisionLine(FIXTURE, false);
+    assertThat(delivered.get("reason").asText()).isEmpty();
+    assertThat(delivered.get("scheduler").asText()).isEqualTo("bal");
+
+    final JsonNode dropped = decisionLine(withLastAccessListAccountDropped(), false);
+    assertThat(dropped.get("path").asText()).isEqualTo("parallel");
+    assertThat(dropped.get("reason").asText()).isEqualTo("bad-access-list");
+    assertThat(dropped.get("scheduler").asText()).isEqualTo("optimistic");
+  }
+
+  @Test
+  void droppedAccessListReasonTakesPrecedenceOverTheSwitch() throws IOException {
+    assertThat(decisionLine(FIXTURE, true).get("reason").asText()).isEqualTo("disabled");
+
+    final JsonNode dropped = decisionLine(withLastAccessListAccountDropped(), true);
+    assertThat(dropped.get("path").asText()).isEqualTo("sequential");
+    assertThat(dropped.get("reason").asText()).isEqualTo("bad-access-list");
   }
 
   @Test
@@ -102,6 +124,18 @@ class BlockchainTestSubCommandTest {
   @Test
   void withoutBalReportNoEventLineIsPrinted() {
     assertThat(eventLines(stderr("--json-array", FIXTURE.toString()))).isEmpty();
+  }
+
+  private static JsonNode decisionLine(final Path fixture, final boolean sequential)
+      throws IOException {
+    final List<String> args = new ArrayList<>(List.of("--json-array", "--bal-report"));
+    if (sequential) {
+      args.add("--bal-sequential");
+    }
+    args.add(fixture.toString());
+    final List<String> lines = eventLines(stderr(args.toArray(String[]::new)));
+    assertThat(lines).hasSize(1);
+    return MAPPER.readTree(lines.get(0));
   }
 
   private boolean passes(final Path fixture, final boolean sequential) throws IOException {

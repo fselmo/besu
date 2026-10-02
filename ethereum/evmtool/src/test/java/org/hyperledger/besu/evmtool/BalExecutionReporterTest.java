@@ -67,6 +67,31 @@ class BalExecutionReporterTest {
   }
 
   @Test
+  void droppedAccessListIsTheReasonOnEitherPathOnlyDuringItsImport() {
+    BalExecutionReporter.importing(
+        true,
+        () -> {
+          reporter.onParallel(header, "optimistic");
+          reporter.onSequential(header, "disabled");
+          return null;
+        });
+    reporter.onSequential(header, "disabled");
+
+    assertThat(lines())
+        .containsExactly(
+            "{\"event\":\"balExecution\",\"block\":12,\"hash\":\""
+                + HASH
+                + "\",\"path\":\"parallel\",\"reason\":\"bad-access-list\","
+                + "\"scheduler\":\"optimistic\"}",
+            "{\"event\":\"balExecution\",\"block\":12,\"hash\":\""
+                + HASH
+                + "\",\"path\":\"sequential\",\"reason\":\"bad-access-list\"}",
+            "{\"event\":\"balExecution\",\"block\":12,\"hash\":\""
+                + HASH
+                + "\",\"path\":\"sequential\",\"reason\":\"disabled\"}");
+  }
+
+  @Test
   void fallbackCarriesBothResults() {
     reporter.onSequentialFallback(
         header,

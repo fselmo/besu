@@ -28,9 +28,11 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
@@ -65,6 +67,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -453,16 +456,19 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
         final Stopwatch timer = Stopwatch.createStarted();
 
-        // The fixture's access list is delivered with the block, as a peer or the consensus
-        // client would deliver it, so it is validated against execution rather than rebuilt. An
-        // expected-invalid block carries it under rlp_decoded, which the spec also reads.
+        // The fixture's access list is delivered beside the block, as a peer delivers it, so it
+        // passes the same gate: used only when it hashes to the header's commitment, otherwise
+        // dropped and the block judged on its header. An expected-invalid block carries it under
+        // rlp_decoded, which the spec also reads.
+        final Optional<BlockAccessList> delivered = candidateBlock.getBlockAccessList();
+        final Optional<BlockAccessList> accessList =
+            accessListMatchingHeader(delivered, block.getHeader());
         final BlockImportResult importResult =
-            blockImporter.importBlock(
-                context,
-                block,
-                validationMode,
-                validationMode,
-                candidateBlock.getBlockAccessList());
+            BalExecutionReporter.importing(
+                delivered.isPresent() && accessList.isEmpty(),
+                () ->
+                    blockImporter.importBlock(
+                        context, block, validationMode, validationMode, accessList));
 
         timer.stop();
 
@@ -636,6 +642,16 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         progressOut().println("Journaled account configured and fork prior to the merge specified");
       }
     }
+  }
+
+  /**
+   * Returns the delivered access list when it hashes to the header's commitment, as
+   * GetBlockAccessListsFromPeerTask checks a peer's list, and empty otherwise.
+   */
+  private static Optional<BlockAccessList> accessListMatchingHeader(
+      final Optional<BlockAccessList> delivered, final BlockHeader header) {
+    return delivered.filter(
+        list -> header.getBalHash().equals(Optional.of(BodyValidation.balHash(list))));
   }
 
   /**

@@ -76,6 +76,7 @@ import java.util.stream.Collectors;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.tuweni.bytes.Bytes32;
@@ -152,7 +153,8 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
   @Option(
       names = {"--json-array"},
-      description = "Output results as a JSON array: name, pass, fork, lastBlockHash, error.")
+      description =
+          "Output results as a JSON array: name, pass, fork, lastBlockHash, error, rejections.")
   private boolean jsonArray = false;
 
   private static final PrintWriter DISCARDED_OUTPUT = new PrintWriter(Writer.nullWriter());
@@ -430,6 +432,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     int totalTxCount = 0;
     int blockCount = 0;
     long testStartTime = System.currentTimeMillis();
+    final ArrayNode rejections = FixtureRunner.newRejections();
 
     final BlockchainReferenceTestCaseSpec.CandidateBlock[] candidateBlocks =
         spec.getCandidateBlocks();
@@ -483,6 +486,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
           totalTxCount += block.getBody().getTransactions().size();
         }
 
+        if (!importResult.isImported()) {
+          FixtureRunner.addRejection(
+              rejections,
+              blockIndex,
+              Optional.of(block.getHash()),
+              importResult.getErrorMessage().orElse(""));
+        }
+
         final String blockFailureReason =
             getBlockImportFailureReason(importResult, candidateBlock, block);
         testPassed &= (blockFailureReason == null);
@@ -497,6 +508,10 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       } catch (final RLPException e) {
         // Do not call getBlock() again here: decoding already failed, and a second call rethrows
         // and drops this test from --json-array output (see #11328).
+        if (isLastIteration) {
+          FixtureRunner.addRejection(
+              rejections, blockIndex, Optional.empty(), String.valueOf(e.getMessage()));
+        }
         if (candidateBlock.isValid()) {
           testPassed = false;
           final String rlpFailureReason =
@@ -551,7 +566,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               blockCount);
     }
 
-    recordResult(test, spec, blockchain, testPassed, failureReason, results);
+    recordResult(test, spec, blockchain, testPassed, failureReason, rejections, results);
   }
 
   private static @Nullable String getBlockImportFailureReason(
@@ -605,6 +620,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       final MutableBlockchain blockchain,
       final boolean testPassed,
       final @Nullable String failureReason,
+      final ArrayNode rejections,
       final FixtureRunner.TestResults results) {
     if (testPassed) {
       results.recordPass();
@@ -619,6 +635,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       result.put("fork", spec.getNetwork());
       result.put("lastBlockHash", blockchain.getChainHeadHash().getBytes().toHexString());
       result.put("error", failureReason);
+      result.set("rejections", rejections);
       jsonArrayResults.add(result);
     }
   }

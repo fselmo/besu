@@ -524,15 +524,10 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                   candidateBlock.getBlock().getHash(),
                   e.getMessage());
           progressOut().println(failureReason);
-        } else {
-          final Optional<String> wrongReason =
-              wrongReason(candidateBlock, Optional.ofNullable(e.getMessage()));
-          if (wrongReason.isPresent()) {
-            testPassed = false;
-            failureReason = "Block RLP rejected for the wrong reason: " + wrongReason.get();
-            progressOut().println(failureReason);
-          }
         }
+        // An expected-invalid block that fails to decode is rejected, whatever its exception: the
+        // decoder's messages name an RLP position, not a validation rule, so the mapping cannot
+        // tell them apart. The reference tests and hive's consume-rlp accept it the same way.
       } catch (final RuntimeException e) {
         // Anything else escaping import is a defect, not a rejection: a node rejects a block with
         // a result, never an exception. Charged to this test, so the rest of the run still runs.

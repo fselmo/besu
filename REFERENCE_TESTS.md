@@ -283,7 +283,8 @@ or an `INVALID` whose message only `engine_newPayload` produces and does not map
 the fixture names. Those are exactly the failures neither `consumeRlpTests` nor `referenceTests` can
 see, and they are the reason the engine runner exists. Both runners fail a block rejected for a
 reason other than the one the fixture names, through the mapping in
-`ethereum/referencetests/src/main/resources/block-exception-mapping.json`.
+`ethereum/referencetests/src/main/resources/block-exception-mapping.json`. A `block-test` block that
+fails to decode counts as rejected whatever its exception, as in the reference tests.
 
 ### Fixture version
 

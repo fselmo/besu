@@ -74,6 +74,18 @@ class BlockchainTestSubCommandTest {
         .contains("Block access list hash mismatch");
   }
 
+  @Test
+  void blockThatFailsToDecodePassesWhateverItsExpectedException() throws IOException {
+    final ObjectNode fixture = (ObjectNode) MAPPER.readTree(INVALID_ACCESS_LIST.toFile());
+    final ObjectNode block = (ObjectNode) fixture.elements().next().get("blocks").get(0);
+    block.put("rlp", "0xc0");
+    block.put("expectException", INSUFFICIENT_FUNDS);
+    final Path undecodable = tempDir.resolve("undecodable.json");
+    Files.writeString(undecodable, MAPPER.writeValueAsString(fixture));
+
+    assertThat(passes(undecodable, false)).isTrue();
+  }
+
   @ParameterizedTest(name = "--bal-sequential={0}")
   @ValueSource(booleans = {false, true})
   void accessListNotMatchingTheHeaderIsDroppedNotRejected(final boolean sequential)

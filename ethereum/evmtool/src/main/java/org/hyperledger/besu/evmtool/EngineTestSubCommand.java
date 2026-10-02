@@ -20,6 +20,8 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 import static org.hyperledger.besu.evmtool.EngineTestSubCommand.COMMAND_ALIAS;
 import static org.hyperledger.besu.evmtool.EngineTestSubCommand.COMMAND_NAME;
@@ -56,9 +58,11 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttr
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV4;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -92,12 +96,15 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.function.IntFunction;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.vertx.core.Vertx;
 import org.apache.tuweni.bytes.Bytes;
@@ -678,6 +685,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       return;
     }
 
+    final ArrayNode rejections = FixtureRunner.newRejections();
     for (int i = 0; i < payloads.length; i++) {
       final EngineTestCaseSpec.EngineNewPayload payload = payloads[i];
       final int version = payload.getNewPayloadVersion();
@@ -715,6 +723,12 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
                   : null;
         }
       } catch (final JsonProcessingException e) {
+        // The engine would answer params it cannot deserialize with InvalidParams.
+        FixtureRunner.addRejection(
+            rejections,
+            i,
+            Optional.empty(),
+            rpcError(new JsonRpcError(RpcErrorType.INVALID_PARAMS)));
         if (payload.expectsValid()) {
           testPassed = false;
           failureReason = String.format("payload %d: param parse error: %s", i, e.getMessage());
@@ -745,6 +759,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         // Mirrors the hive consume-engine oracle: when the fixture sets an errorCode the
         // returned code must match exactly; when it does not, any RPC error is unexpected.
         if (response instanceof JsonRpcErrorResponse errorResponse) {
+          FixtureRunner.addRejection(
+              rejections, i, Optional.empty(), rpcError(errorResponse.getError()));
           String mismatch =
               checkExpectedErrorCode(i, payload.getErrorCode(), errorResponse.getError().getCode());
           if (mismatch != null) {
@@ -763,6 +779,18 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         final PayloadStatusV1 status =
             (PayloadStatusV1) ((JsonRpcSuccessResponse) response).getResult();
         lastPayloadStatus = status.getStatus();
+        if (INVALID.equals(status.getStatus())) {
+          FixtureRunner.addRejection(
+              rejections,
+              i,
+              Optional.of(Hash.fromHexString(payload.getParams()[0].get("blockHash").asText())),
+              Objects.toString(status.getError(), ""));
+        } else if (INVALID_BLOCK_HASH.equals(status.getStatus())) {
+          // The client's hash of the payload is not the one it was sent, so there is none to
+          // report.
+          FixtureRunner.addRejection(
+              rejections, i, Optional.empty(), Objects.toString(status.getError(), ""));
+        }
 
         // A fixture that expects an Engine API errorCode requires an actual JSON-RPC error
         // response; a status response, even INVALID, does not satisfy it. This is the distinction
@@ -841,6 +869,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       } catch (final InvalidJsonRpcRequestException e) {
         // Calling syncResponse() directly throws this for param-level errors; over the wire it
         // would surface as a JSON-RPC error, so apply the same errorCode matching as above.
+        FixtureRunner.addRejection(
+            rejections, i, Optional.empty(), rpcError(new JsonRpcError(e.getRpcErrorType())));
         final String mismatch =
             checkExpectedErrorCode(i, payload.getErrorCode(), e.getRpcErrorType().getCode());
         if (mismatch != null) {
@@ -874,7 +904,17 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         testPassed,
         testPassed ? "" : failureReason,
         lastPayloadStatus,
+        rejections,
         results);
+  }
+
+  /**
+   * Formats a JSON-RPC error as the rejection reason: {@code <code>: <message>}, followed by {@code
+   * : <data>} when the error carries data.
+   */
+  private static String rpcError(final JsonRpcError error) {
+    final String reason = error.getCode() + ": " + error.getMessage();
+    return error.getData() == null ? reason : reason + ": " + error.getData();
   }
 
   /**
@@ -916,7 +956,15 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       final boolean testPassed,
       final String failureReason,
       final FixtureRunner.TestResults results) {
-    recordResult(test, spec, blockchain, testPassed, failureReason, null, results);
+    recordResult(
+        test,
+        spec,
+        blockchain,
+        testPassed,
+        failureReason,
+        null,
+        FixtureRunner.newRejections(),
+        results);
   }
 
   /**
@@ -936,6 +984,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       final boolean testPassed,
       final String failureReason,
       final EngineStatus lastPayloadStatus,
+      final ArrayNode rejections,
       final FixtureRunner.TestResults results) {
     if (testPassed) {
       if (verbose) {
@@ -963,6 +1012,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       // carrying that payload's message here would make a passing row indistinguishable from a
       // failed one.
       result.put("error", failureReason);
+      result.set("rejections", rejections);
       jsonArrayResults.add(result);
     }
   }

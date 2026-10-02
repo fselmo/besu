@@ -74,6 +74,7 @@ import java.util.stream.Collectors;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.tuweni.bytes.Bytes32;
@@ -403,6 +404,8 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
     boolean testPassed = true;
     String failureReason = "";
+    final ArrayNode rejections = FixtureRunner.newRejections();
+    int blockIndex = -1;
 
     if (parentCommand.showJsonResults && isLastIteration) {
       try {
@@ -432,6 +435,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
     for (final BlockchainReferenceTestCaseSpec.CandidateBlock candidateBlock :
         spec.getCandidateBlocks()) {
+      blockIndex++;
       if (!candidateBlock.isExecutable()) {
         return;
       }
@@ -477,6 +481,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
           totalTxCount += block.getBody().getTransactions().size();
         }
 
+        if (!importResult.isImported()) {
+          FixtureRunner.addRejection(
+              rejections,
+              blockIndex,
+              Optional.of(block.getHash()),
+              importResult.getErrorMessage().orElse(""));
+        }
+
         if (importResult.isImported() != candidateBlock.isValid()) {
           testPassed = false;
           failureReason =
@@ -504,6 +516,10 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
           }
         }
       } catch (final RLPException e) {
+        if (isLastIteration) {
+          FixtureRunner.addRejection(
+              rejections, blockIndex, Optional.empty(), String.valueOf(e.getMessage()));
+        }
         if (candidateBlock.isValid()) {
           testPassed = false;
           failureReason =
@@ -570,6 +586,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       result.put("fork", spec.getNetwork());
       result.put("lastBlockHash", blockchain.getChainHeadHash().toHexString());
       result.put("error", failureReason);
+      result.set("rejections", rejections);
       jsonArrayResults.add(result);
     }
   }

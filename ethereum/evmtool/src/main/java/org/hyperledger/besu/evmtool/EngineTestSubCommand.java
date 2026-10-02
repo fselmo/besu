@@ -825,8 +825,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           // map to the fixture's expected exception.
           if (payload.getValidationError() != null) {
             final String mismatch =
-                ExpectedExceptionCheck.engineMismatch(
-                    payload.getValidationError(), status.getError());
+                EngineTestExceptionMapper.mismatch(payload.getValidationError(), status.getError());
             if (mismatch != null) {
               testPassed = false;
               failureReason = String.format("payload %d: %s", i, mismatch);

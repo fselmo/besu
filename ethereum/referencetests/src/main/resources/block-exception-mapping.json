@@ -1,5 +1,5 @@
 {
-  "_comment": "Maps execution-spec-tests exception keys to the Besu error-message patterns that condition produces. The top-level 'substring' and 'regex' sections cover validateAndProcessBlock, and are used by both the JUnit reference tests and evmtool's engine-test; the 'engine' section at the bottom adds the messages only the Engine API emits. Organized by validation stage. Source: https://github.com/ethereum/execution-specs (clis/besu.py); every exception that file maps is mapped here, last checked against forks/amsterdam at 2645291933b12217b56e8736207677e84e1744df.",
+  "_comment": "Maps execution-spec-tests exception keys to the Besu error-message patterns that condition produces. The top-level 'substring' and 'regex' sections cover validateAndProcessBlock, and are used by both the JUnit reference tests and evmtool's engine-test; the 'engine' section at the bottom adds the messages only the Engine API emits. Organized by validation stage. Source: https://github.com/ethereum/execution-specs (clis/besu.py)",
 
   "substring": {
 
@@ -77,7 +77,7 @@
     "BlockException.INVALID_REQUESTS":                           "Invalid execution requests|Requests hash mismatch, calculated: 0x[0-9a-f]+ header: 0x[0-9a-f]+",
 
     "_comment_bal_regex": "Block Access List (BAL) — EIP-7928 (keep even if unmatched)",
-    "BlockException.INCORRECT_BLOCK_FORMAT":                     "Block access list validation failed for block|Block access list hash mismatch|Header validation failed",
+    "BlockException.INCORRECT_BLOCK_FORMAT":                     "Block access list validation failed for block|Block access list hash mismatch",
     "BlockException.INVALID_BAL_HASH":                           "Block access list validation failed for block|Block access list hash mismatch",
     "BlockException.INVALID_BLOCK_ACCESS_LIST":                  "Block access list validation failed for block 0x[0-9a-f]+|Block access list hash mismatch, calculated: 0x[0-9a-f]+ header: 0x[0-9a-f]+",
 
@@ -95,8 +95,8 @@
     "_comment_tx_sender": "Transaction sender errors",
     "TransactionException.SENDER_NOT_EOA":                       "transaction invalid Sender 0x[0-9a-f]+ has deployed code and so is not authorized to send transactions",
 
-    "_comment_tx_signature": "Transaction signature errors; an in-range r that is not the x-coordinate of a curve point recovers no sender",
-    "TransactionException.INVALID_SIGNATURE_VRS":                "transaction invalid Signature s value should be less than \\d+, but got \\d+|Cannot recover public key from signature",
+    "_comment_tx_signature": "Transaction signature errors",
+    "TransactionException.INVALID_SIGNATURE_VRS":                "transaction invalid Signature s value should be less than \\d+, but got \\d+",
 
     "_comment_tx_type_pre_fork": "Transaction type not supported on this fork — Besu emits the same error for all unsupported types",
     "TransactionException.TYPE_NOT_SUPPORTED":                     "transaction invalid Transaction type \\w+ is invalid, accepted transaction types are|replay protected signatures is not supported",

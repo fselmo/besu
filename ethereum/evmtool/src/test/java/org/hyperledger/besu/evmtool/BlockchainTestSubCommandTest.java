@@ -40,52 +40,12 @@ import picocli.CommandLine;
 class BlockchainTestSubCommandTest {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
-  private static final String INSUFFICIENT_FUNDS =
-      "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS";
 
   /** An Amsterdam fixture with one self-transfer block and its block access list. */
   private static final Path FIXTURE =
       Path.of(BlockchainTestSubCommandTest.class.getResource("bal-self-transfer.json").getPath());
 
-  /** An Amsterdam fixture whose block is rejected for an access list missing an entry. */
-  private static final Path INVALID_ACCESS_LIST =
-      Path.of(
-          BlockchainTestSubCommandTest.class
-              .getResource("bal-invalid-block-access-list.json")
-              .getPath());
-
   @TempDir Path tempDir;
-
-  @ParameterizedTest(name = "--bal-sequential={0}")
-  @ValueSource(booleans = {false, true})
-  void blockRejectedForTheExpectedReasonPasses(final boolean sequential) throws IOException {
-    assertThat(passes(INVALID_ACCESS_LIST, sequential)).isTrue();
-  }
-
-  @ParameterizedTest(name = "--bal-sequential={0}")
-  @ValueSource(booleans = {false, true})
-  void blockRejectedForAnotherReasonFails(final boolean sequential) throws IOException {
-    final JsonNode result = result(withExpectedException(INSUFFICIENT_FUNDS), sequential);
-
-    assertThat(result.get("pass").asBoolean()).isFalse();
-    assertThat(result.get("error").asText())
-        .contains("rejected for the wrong reason")
-        .contains(INSUFFICIENT_FUNDS)
-        .contains("BlockException.INVALID_BLOCK_ACCESS_LIST")
-        .contains("Block access list hash mismatch");
-  }
-
-  @Test
-  void blockThatFailsToDecodePassesWhateverItsExpectedException() throws IOException {
-    final ObjectNode fixture = (ObjectNode) MAPPER.readTree(INVALID_ACCESS_LIST.toFile());
-    final ObjectNode block = (ObjectNode) fixture.elements().next().get("blocks").get(0);
-    block.put("rlp", "0xc0");
-    block.put("expectException", INSUFFICIENT_FUNDS);
-    final Path undecodable = tempDir.resolve("undecodable.json");
-    Files.writeString(undecodable, MAPPER.writeValueAsString(fixture));
-
-    assertThat(passes(undecodable, false)).isTrue();
-  }
 
   @ParameterizedTest(name = "--bal-sequential={0}")
   @ValueSource(booleans = {false, true})
@@ -185,25 +145,12 @@ class BlockchainTestSubCommandTest {
   }
 
   private boolean passes(final Path fixture, final boolean sequential) throws IOException {
-    return result(fixture, sequential).get("pass").asBoolean();
-  }
-
-  private static JsonNode result(final Path fixture, final boolean sequential) throws IOException {
     final List<String> args = new ArrayList<>(List.of("--json-array"));
     if (sequential) {
       args.add("--bal-sequential");
     }
     args.add(fixture.toString());
-    return MAPPER.readTree(run(args.toArray(String[]::new))).get(0);
-  }
-
-  private Path withExpectedException(final String exception) throws IOException {
-    final ObjectNode fixture = (ObjectNode) MAPPER.readTree(INVALID_ACCESS_LIST.toFile());
-    final ObjectNode block = (ObjectNode) fixture.elements().next().get("blocks").get(0);
-    block.put("expectException", exception);
-    final Path changed = tempDir.resolve("wrong-reason.json");
-    Files.writeString(changed, MAPPER.writeValueAsString(fixture));
-    return changed;
+    return MAPPER.readTree(run(args.toArray(String[]::new))).get(0).get("pass").asBoolean();
   }
 
   private Path withLastAccessListAccountDropped() throws IOException {

@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 
 import java.io.PrintStream;
+import java.util.function.Supplier;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -33,17 +34,41 @@ final class BalExecutionReporter implements BlockExecutionPathListener {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
+  static final String BAD_ACCESS_LIST = "bad-access-list";
+
+  // Set while block-test imports a block whose delivered access list it dropped. The listener is
+  // called on the importing thread, so a worker's flag never reaches another worker's block.
+  private static final ThreadLocal<Boolean> ACCESS_LIST_DROPPED =
+      ThreadLocal.withInitial(() -> false);
+
   private final PrintStream err;
 
   BalExecutionReporter(final PrintStream err) {
     this.err = err;
   }
 
+  /**
+   * Runs a block import, reporting its block with reason {@code bad-access-list} whatever path runs
+   * it when the runner dropped the block's delivered access list.
+   *
+   * @param accessListDropped whether the runner dropped the delivered access list
+   * @param importBlock the import
+   * @return the import's result
+   */
+  static <T> T importing(final boolean accessListDropped, final Supplier<T> importBlock) {
+    ACCESS_LIST_DROPPED.set(accessListDropped);
+    try {
+      return importBlock.get();
+    } finally {
+      ACCESS_LIST_DROPPED.remove();
+    }
+  }
+
   @Override
   public void onParallel(final BlockHeader header, final String scheduler) {
     final ObjectNode line = event("balExecution", header);
     line.put("path", "parallel");
-    line.put("reason", "");
+    line.put("reason", ACCESS_LIST_DROPPED.get() ? BAD_ACCESS_LIST : "");
     line.put("scheduler", scheduler);
     print(line);
   }
@@ -52,7 +77,7 @@ final class BalExecutionReporter implements BlockExecutionPathListener {
   public void onSequential(final BlockHeader header, final String reason) {
     final ObjectNode line = event("balExecution", header);
     line.put("path", "sequential");
-    line.put("reason", reason);
+    line.put("reason", ACCESS_LIST_DROPPED.get() ? BAD_ACCESS_LIST : reason);
     print(line);
   }
 

@@ -344,9 +344,14 @@ names other clients' runners answer to.
 
 #### Parallel and sequential execution
 
-`block-test` and `engine-test` run blocks on the parallel block processor, as a Bonsai node does,
-and deliver each block's access list so it is validated against execution. `--bal-sequential` runs
-every block on the sequential block processor instead; the access list is validated either way.
+`block-test` and `engine-test` run blocks on the parallel block processor, as a Bonsai node does.
+`--bal-sequential` runs every block on the sequential block processor instead.
+
+`engine-test` takes each block's access list from the payload, where a list that does not match
+execution makes the payload invalid. `block-test` delivers the fixture's list beside the block, as a
+peer does during sync, and uses it only when it hashes to the header's `blockAccessListHash`;
+otherwise it drops the list and the block runs without one, judged on its header alone. Both hold
+in either mode.
 
 With `--bal-report`, both print one JSON line to stderr for each block they execute, naming the
 executor that ran it, and one more when the parallel processor failed a block and re-ran it

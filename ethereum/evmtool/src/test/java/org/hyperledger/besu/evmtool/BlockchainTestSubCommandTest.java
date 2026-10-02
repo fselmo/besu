@@ -48,9 +48,19 @@ class BlockchainTestSubCommandTest {
 
   @ParameterizedTest(name = "--bal-sequential={0}")
   @ValueSource(booleans = {false, true})
-  void deliveredAccessListIsValidatedAgainstExecution(final boolean sequential) throws IOException {
+  void accessListNotMatchingTheHeaderIsDroppedNotRejected(final boolean sequential)
+      throws IOException {
     assertThat(passes(FIXTURE, sequential)).isTrue();
-    assertThat(passes(withLastAccessListAccountDropped(), sequential)).isFalse();
+    assertThat(passes(withLastAccessListAccountDropped(), sequential)).isTrue();
+  }
+
+  @Test
+  void droppedAccessListRunsOnTheOptimisticScheduler() throws IOException {
+    assertThat(decisionLine(FIXTURE).get("scheduler").asText()).isEqualTo("bal");
+
+    final JsonNode dropped = decisionLine(withLastAccessListAccountDropped());
+    assertThat(dropped.get("path").asText()).isEqualTo("parallel");
+    assertThat(dropped.get("scheduler").asText()).isEqualTo("optimistic");
   }
 
   @Test
@@ -75,6 +85,13 @@ class BlockchainTestSubCommandTest {
   @Test
   void withoutBalReportNoEventLineIsPrinted() {
     assertThat(eventLines(stderr("--json-array", FIXTURE.toString()))).isEmpty();
+  }
+
+  private static JsonNode decisionLine(final Path fixture) throws IOException {
+    final List<String> lines =
+        eventLines(stderr("--json-array", "--bal-report", fixture.toString()));
+    assertThat(lines).hasSize(1);
+    return MAPPER.readTree(lines.get(0));
   }
 
   private boolean passes(final Path fixture, final boolean sequential) throws IOException {

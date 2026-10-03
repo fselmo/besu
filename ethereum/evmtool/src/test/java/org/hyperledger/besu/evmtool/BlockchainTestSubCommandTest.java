@@ -59,6 +59,16 @@ class BlockchainTestSubCommandTest {
               .getResource("bal-invalid-block-access-list.json")
               .getPath());
 
+  /**
+   * A TangerineWhistle and a SpuriousDragon test, each with a rejected block and then an imported
+   * one; EEST names these forks this way rather than EIP150 and EIP158.
+   */
+  private static final Path TANGERINE_WHISTLE_AND_SPURIOUS_DRAGON =
+      Path.of(
+          BlockchainTestSubCommandTest.class
+              .getResource("tangerine-whistle-and-spurious-dragon.json")
+              .getPath());
+
   private static final String INVALID_BLOCK_HASH =
       "0xe07099693533f8c5b69f1030a1932f538ae19e0631dd9951d6d0a210950d8bbb";
 
@@ -100,6 +110,18 @@ class BlockchainTestSubCommandTest {
     assertThat(result.get("error").isNull()).isTrue();
     assertThat(result.get("rejections").get(0).get("error").asText())
         .contains("Block access list hash mismatch");
+  }
+
+  @Test
+  void tangerineWhistleAndSpuriousDragonFixturesRun() throws IOException {
+    final JsonNode results =
+        MAPPER.readTree(run("--json-array", TANGERINE_WHISTLE_AND_SPURIOUS_DRAGON.toString()));
+
+    assertThat(results).hasSize(2);
+    for (final JsonNode result : results) {
+      assertThat(result.get("pass").asBoolean()).as(result.get("error").asText()).isTrue();
+      assertThat(result.get("rejections")).hasSize(1);
+    }
   }
 
   @Test

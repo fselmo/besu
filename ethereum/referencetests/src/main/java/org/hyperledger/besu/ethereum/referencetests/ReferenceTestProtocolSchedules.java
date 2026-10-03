@@ -54,7 +54,7 @@ public class ReferenceTestProtocolSchedules {
   private static final BigInteger CHAIN_ID = BigInteger.ONE;
 
   private static final List<String> SPECS_PRIOR_TO_DELETING_EMPTY_ACCOUNTS =
-      Arrays.asList("Frontier", "Homestead", "EIP150");
+      Arrays.asList("Frontier", "Homestead", "EIP150", "TangerineWhistle");
 
   private static final Set<String> FORKS_WITHOUT_BLOCK_BUILDING =
       Set.of(
@@ -65,6 +65,8 @@ public class ReferenceTestProtocolSchedules {
           "homesteadtodaoat5",
           "eip150",
           "eip158",
+          "tangerinewhistle",
+          "spuriousdragon",
           "eip158tobyzantiumat5");
 
   /** Guarded by {@link #cached(EvmConfiguration, BlobScheduleOptions)}, which is synchronized. */
@@ -161,7 +163,13 @@ public class ReferenceTestProtocolSchedules {
                 Map.entry(
                     "EIP150", createSchedule(genesisStub.clone().eip150Block(0), evmConfiguration)),
                 Map.entry(
+                    "TangerineWhistle",
+                    createSchedule(genesisStub.clone().eip150Block(0), evmConfiguration)),
+                Map.entry(
                     "EIP158", createSchedule(genesisStub.clone().eip158Block(0), evmConfiguration)),
+                Map.entry(
+                    "SpuriousDragon",
+                    createSchedule(genesisStub.clone().eip158Block(0), evmConfiguration)),
                 Map.entry(
                     "EIP158ToByzantiumAt5",
                     createSchedule(

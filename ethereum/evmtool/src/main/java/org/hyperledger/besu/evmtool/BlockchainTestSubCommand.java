@@ -240,6 +240,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     if (balReport) {
       executionPathListener = new BalExecutionReporter(System.err);
     }
+    if (jsonArray) {
+      RejectionReasons.install();
+    }
     try {
       if (blockchainTestFiles.isEmpty()) {
         // if no files were specified, use standard input to get filenames
@@ -281,6 +284,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       System.err.println("Error: " + e.getMessage());
       e.printStackTrace(System.err);
     } finally {
+      if (jsonArray) {
+        RejectionReasons.uninstall();
+      }
       // Fail an empty run, so a typo in --test-name or a fixture tree that did not materialise
       // cannot be mistaken for a clean sweep. Not printed under --json-array, where that output is
       // parsed and only the array belongs.
@@ -466,12 +472,16 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         final Optional<BlockAccessList> delivered = candidateBlock.getBlockAccessList();
         final Optional<BlockAccessList> accessList =
             accessListMatchingHeader(delivered, block.getHeader());
+        final List<String> reasons = new ArrayList<>();
         final BlockImportResult importResult =
-            BalExecutionReporter.importing(
-                delivered.isPresent() && accessList.isEmpty(),
+            RejectionReasons.capturing(
+                reasons,
                 () ->
-                    blockImporter.importBlock(
-                        context, block, validationMode, validationMode, accessList));
+                    BalExecutionReporter.importing(
+                        delivered.isPresent() && accessList.isEmpty(),
+                        () ->
+                            blockImporter.importBlock(
+                                context, block, validationMode, validationMode, accessList)));
 
         timer.stop();
 
@@ -489,7 +499,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               rejections,
               blockIndex,
               Optional.of(block.getHash()),
-              importResult.getErrorMessage().orElse(""));
+              RejectionReasons.append(importResult.getErrorMessage().orElse(""), reasons));
         }
 
         final String blockFailureReason =

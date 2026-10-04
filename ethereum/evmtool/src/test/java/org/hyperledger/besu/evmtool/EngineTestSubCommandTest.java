@@ -65,6 +65,13 @@ class EngineTestSubCommandTest {
               .getResource("bal-invalid-block-access-list-engine.json")
               .getPath());
 
+  /** An Amsterdam engine fixture whose payload is INVALID for a gas limit below the minimum. */
+  private static final Path GAS_LIMIT_BELOW_MINIMUM =
+      Path.of(
+          EngineTestSubCommandTest.class
+              .getResource("header-gas-limit-below-minimum-engine.json")
+              .getPath());
+
   private static final String INVALID_BLOCK_HASH =
       "0xe07099693533f8c5b69f1030a1932f538ae19e0631dd9951d6d0a210950d8bbb";
 
@@ -81,6 +88,18 @@ class EngineTestSubCommandTest {
     assertThat(rejection.get("index").asInt()).isZero();
     assertThat(rejection.get("hash").asText()).isEqualTo(INVALID_BLOCK_HASH);
     assertThat(rejection.get("error").asText()).contains("Block access list hash mismatch");
+  }
+
+  @Test
+  void headerRejectionNamesTheRuleThatFailed() throws IOException {
+    final JsonNode result = result(GAS_LIMIT_BELOW_MINIMUM, false);
+
+    assertThat(result.get("pass").asBoolean()).isTrue();
+    assertThat(result.get("rejections")).hasSize(1);
+    assertThat(result.get("rejections").get(0).get("error").asText())
+        .isEqualTo(
+            "Header validation failed (FULL) [Invalid block header: gasLimit = 0 is outside range"
+                + " 5000 --> 9223372036854775807]");
   }
 
   @Test

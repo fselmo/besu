@@ -247,6 +247,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     if (balReport) {
       executionPathListener = new BalExecutionReporter(System.err);
     }
+    if (jsonArray) {
+      RejectionReasons.install();
+    }
     try {
       if (engineTestFiles.isEmpty()) {
         final BufferedReader in =
@@ -282,6 +285,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       setupFailed = true;
       System.err.println("Error: " + e.getMessage());
     } finally {
+      if (jsonArray) {
+        RejectionReasons.uninstall();
+      }
       // An empty run is not a pass: a typo in --test-name, or a fixture tree that failed to
       // materialise, would otherwise be indistinguishable from a clean sweep.
       boolean ranNothing = false;
@@ -756,10 +762,14 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
 
       try {
         // Call the real engine method directly
+        final List<String> reasons = new ArrayList<>();
         final JsonRpcResponse response =
-            method.syncResponse(
-                new JsonRpcRequestContext(
-                    new JsonRpcRequest("2.0", "engine_newPayloadV" + version, rpcParams)));
+            RejectionReasons.capturing(
+                reasons,
+                () ->
+                    method.syncResponse(
+                        new JsonRpcRequestContext(
+                            new JsonRpcRequest("2.0", "engine_newPayloadV" + version, rpcParams))));
 
         // Handle RPC-level errors (the engine method returned a JSON-RPC error response).
         // Mirrors the hive consume-engine oracle: when the fixture sets an errorCode the
@@ -790,7 +800,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
               rejections,
               i,
               Optional.of(Hash.fromHexString(payload.getParams()[0].get("blockHash").asText())),
-              Objects.toString(status.getError(), ""));
+              RejectionReasons.append(Objects.toString(status.getError(), ""), reasons));
         } else if (INVALID_BLOCK_HASH.equals(status.getStatus())) {
           // The client's hash of the payload is not the one it was sent, so there is none to
           // report.

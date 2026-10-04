@@ -321,7 +321,10 @@ lastBlockHash, error, rejections}]`) and nothing else, so the exit code is what 
 failed run. `rejections` lists every block or payload Besu rejected, as
 `{"index": <position in blocks or engineNewPayloads>, "hash": "0x…", "error": "<Besu's error>"}`,
 with the error verbatim (a JSON-RPC error as `<code>: <message>`, then `: <data>` when it has
-data) and no `hash` when Besu computed none. `block-test` does not check that error against the
+data) and no `hash` when Besu computed none. Besu's error for a failed header, body or block access
+list check is generic (`Header validation failed (LIGHT)`), so the line the failing validator logged
+follows it in brackets: `Header validation failed (LIGHT) [Invalid block header: gasLimit = 0 is
+outside range 5000 --> 9223372036854775807]`. `block-test` does not check that error against the
 fixture's expected exception; a consumer such as EEST's `consume` does, through its Besu mapper.
 
 A single fixture file can also be piped in as `stdin`, which all three subcommands accept:

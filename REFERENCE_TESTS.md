@@ -375,7 +375,12 @@ without the flag nothing of it is printed.
 `scheduler` is `bal` when transactions are scheduled from the block's access list and `optimistic`
 when the block has none. A sequential line's `reason` is `disabled` under `--bal-sequential`, or
 `not-path-based` when the world state cannot run transactions in parallel. When `block-test` dropped
-the block's access list, `reason` is `bad-access-list` on either path and in either mode. Under
+the block's access list, `reason` is `bad-access-list` on either path and in either mode.
+
+`block-test --bal-withhold` imports every block without its delivered access list, valid or not, so
+the block is judged on its header and Besu builds the list itself, as a node without the list does;
+on the parallel processor that is the `optimistic` scheduler. Each line's `reason` is then
+`withheld`. `engine-test` has no such flag, because there the list is part of the payload. Under
 `--workers`, lines from different fixtures interleave; `hash` ties each line to its block.
 
 > The Gradle-extracted fixtures live at

@@ -173,6 +173,17 @@ class EngineTestSubCommandTest {
   }
 
   @Test
+  void unrecoverableSignatureMatchesInvalidSignatureVrs() {
+    assertThat(
+            EngineTestExceptionMapper.mismatch(
+                "TransactionException.INVALID_SIGNATURE_VRS",
+                "Block processing error: transaction invalid Internal Error in Besu -"
+                    + " java.lang.IllegalStateException: Cannot recover public key from"
+                    + " signature for MessageCall{type=FRONTIER, nonce=0}"))
+        .isNull();
+  }
+
+  @Test
   void validForkchoiceUpdateIsNotAFailure() {
     assertThat(forkchoiceFailure(forkchoiceStatus(EngineStatus.VALID))).isNull();
   }

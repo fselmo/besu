@@ -188,6 +188,22 @@ class BlockchainTestSubCommandTest {
   }
 
   @Test
+  void withheldAccessListRunsOnTheOptimisticSchedulerAndStillPasses() throws IOException {
+    final List<String> lines =
+        eventLines(stderr("--json-array", "--bal-report", "--bal-withhold", FIXTURE.toString()));
+    assertThat(lines).hasSize(1);
+    final JsonNode withheld = MAPPER.readTree(lines.get(0));
+    assertThat(withheld.get("path").asText()).isEqualTo("parallel");
+    assertThat(withheld.get("reason").asText()).isEqualTo("withheld");
+    assertThat(withheld.get("scheduler").asText()).isEqualTo("optimistic");
+
+    final JsonNode results =
+        MAPPER.readTree(run("--json-array", "--bal-withhold", FIXTURE.toString()));
+    assertThat(results).hasSize(1);
+    assertThat(results.get(0).get("pass").asBoolean()).isTrue();
+  }
+
+  @Test
   void jsonArrayStdoutIsTheArrayAlone() throws IOException {
     final JsonNode stdout = MAPPER.readTree(run("--json-array", FIXTURE.toString()));
 

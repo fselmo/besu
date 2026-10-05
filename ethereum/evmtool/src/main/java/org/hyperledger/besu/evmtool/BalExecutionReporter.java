@@ -24,10 +24,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
- * Prints one JSON line to stderr for each block block-test and engine-test execute, naming the
- * executor that ran it, and one more when the parallel executor failed a block and it was run again
- * sequentially, so a fixture's verdict can be tied to the path that produced it. Lines from
- * different workers interleave; the block hash ties each to its block.
+ * Under --bal-report, prints one JSON line to stderr for each block block-test and engine-test
+ * execute, naming the executor that ran it, and one more when the parallel executor failed a block
+ * and it was run again sequentially, so a fixture's verdict can be tied to the path that produced
+ * it. Lines from different workers interleave; the block hash ties each to its block.
  */
 final class BalExecutionReporter implements BlockExecutionPathListener {
 

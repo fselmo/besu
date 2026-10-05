@@ -36,10 +36,12 @@ final class BalExecutionReporter implements BlockExecutionPathListener {
 
   static final String BAD_ACCESS_LIST = "bad-access-list";
 
-  // Set while block-test imports a block whose delivered access list it dropped. The listener is
-  // called on the importing thread, so a worker's flag never reaches another worker's block.
-  private static final ThreadLocal<Boolean> ACCESS_LIST_DROPPED =
-      ThreadLocal.withInitial(() -> false);
+  static final String WITHHELD = "withheld";
+
+  // Set while block-test imports a block without its delivered access list, to the reason it went
+  // without. The listener is called on the importing thread, so a worker's reason never reaches
+  // another worker's block.
+  private static final ThreadLocal<String> ACCESS_LIST_MISSING = ThreadLocal.withInitial(() -> "");
 
   private final PrintStream err;
 
@@ -48,19 +50,21 @@ final class BalExecutionReporter implements BlockExecutionPathListener {
   }
 
   /**
-   * Runs a block import, reporting its block with reason {@code bad-access-list} whatever path runs
-   * it when the runner dropped the block's delivered access list.
+   * Runs a block import, reporting its block with the given reason whatever path runs it: {@code
+   * bad-access-list} when the runner dropped the block's delivered access list, {@code withheld}
+   * when it withheld it under --bal-withhold.
    *
-   * @param accessListDropped whether the runner dropped the delivered access list
+   * @param accessListMissing why the runner imports the block without its delivered access list, or
+   *     empty when it does not
    * @param importBlock the import
    * @return the import's result
    */
-  static <T> T importing(final boolean accessListDropped, final Supplier<T> importBlock) {
-    ACCESS_LIST_DROPPED.set(accessListDropped);
+  static <T> T importing(final String accessListMissing, final Supplier<T> importBlock) {
+    ACCESS_LIST_MISSING.set(accessListMissing);
     try {
       return importBlock.get();
     } finally {
-      ACCESS_LIST_DROPPED.remove();
+      ACCESS_LIST_MISSING.remove();
     }
   }
 
@@ -68,7 +72,7 @@ final class BalExecutionReporter implements BlockExecutionPathListener {
   public void onParallel(final BlockHeader header, final String scheduler) {
     final ObjectNode line = event("balExecution", header);
     line.put("path", "parallel");
-    line.put("reason", ACCESS_LIST_DROPPED.get() ? BAD_ACCESS_LIST : "");
+    line.put("reason", ACCESS_LIST_MISSING.get());
     line.put("scheduler", scheduler);
     print(line);
   }
@@ -77,7 +81,8 @@ final class BalExecutionReporter implements BlockExecutionPathListener {
   public void onSequential(final BlockHeader header, final String reason) {
     final ObjectNode line = event("balExecution", header);
     line.put("path", "sequential");
-    line.put("reason", ACCESS_LIST_DROPPED.get() ? BAD_ACCESS_LIST : reason);
+    final String accessListMissing = ACCESS_LIST_MISSING.get();
+    line.put("reason", accessListMissing.isEmpty() ? reason : accessListMissing);
     print(line);
   }
 

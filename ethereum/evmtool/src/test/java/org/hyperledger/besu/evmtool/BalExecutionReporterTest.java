@@ -69,7 +69,7 @@ class BalExecutionReporterTest {
   @Test
   void droppedAccessListIsTheReasonOnEitherPathOnlyDuringItsImport() {
     BalExecutionReporter.importing(
-        true,
+        BalExecutionReporter.BAD_ACCESS_LIST,
         () -> {
           reporter.onParallel(header, "optimistic");
           reporter.onSequential(header, "disabled");

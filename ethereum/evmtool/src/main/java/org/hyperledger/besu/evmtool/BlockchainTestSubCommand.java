@@ -189,6 +189,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               + " sequentially. Off by default.")
   private boolean balReport = false;
 
+  @Option(
+      names = {"--bal-withhold"},
+      description =
+          "Import every block without its delivered block access list, so it is judged on its"
+              + " header and Besu builds the list itself, as on a node that has no list. On the"
+              + " parallel block processor this runs the optimistic scheduler. Off by default.")
+  private boolean balWithhold = false;
+
   private BlockExecutionPathListener executionPathListener = BlockExecutionPathListener.NONE;
 
   @ParentCommand private final EvmToolCommand parentCommand;
@@ -470,17 +478,25 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         // The fixture's access list is delivered beside the block, as a peer delivers it, so it
         // passes the same gate: used only when it hashes to the header's commitment, otherwise
         // dropped and the block judged on its header. An expected-invalid block carries it under
-        // rlp_decoded, which the spec also reads.
+        // rlp_decoded, which the spec also reads. Under --bal-withhold no list is used at all.
         final Optional<BlockAccessList> delivered = candidateBlock.getBlockAccessList();
         final Optional<BlockAccessList> accessList =
-            accessListMatchingHeader(delivered, block.getHeader());
+            balWithhold ? Optional.empty() : accessListMatchingHeader(delivered, block.getHeader());
+        final String accessListMissing;
+        if (balWithhold) {
+          accessListMissing = BalExecutionReporter.WITHHELD;
+        } else if (delivered.isPresent() && accessList.isEmpty()) {
+          accessListMissing = BalExecutionReporter.BAD_ACCESS_LIST;
+        } else {
+          accessListMissing = "";
+        }
         final List<String> reasons = new ArrayList<>();
         final BlockImportResult importResult =
             RejectionReasons.capturing(
                 reasons,
                 () ->
                     BalExecutionReporter.importing(
-                        delivered.isPresent() && accessList.isEmpty(),
+                        accessListMissing,
                         () ->
                             blockImporter.importBlock(
                                 context, block, validationMode, validationMode, accessList)));

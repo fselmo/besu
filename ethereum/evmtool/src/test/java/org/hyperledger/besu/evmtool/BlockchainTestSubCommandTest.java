@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -87,6 +88,22 @@ class BlockchainTestSubCommandTest {
     assertThat(results.get(1).get("pass").asBoolean()).isTrue();
   }
 
+  @Test
+  void balReportPrintsTheDecisionLineOnStderr() throws IOException {
+    final List<String> lines =
+        eventLines(stderr("--json-array", "--bal-report", FIXTURE.toString()));
+
+    assertThat(lines).hasSize(1);
+    final JsonNode line = MAPPER.readTree(lines.get(0));
+    assertThat(line.get("event").asText()).isEqualTo("balExecution");
+    assertThat(line.get("path").asText()).isEqualTo("parallel");
+  }
+
+  @Test
+  void withoutBalReportNoEventLineIsPrinted() {
+    assertThat(eventLines(stderr("--json-array", FIXTURE.toString()))).isEmpty();
+  }
+
   private boolean passes(final Path fixture, final boolean sequential) throws IOException {
     final List<String> args = new ArrayList<>(List.of("--json-array"));
     if (sequential) {
@@ -104,6 +121,22 @@ class BlockchainTestSubCommandTest {
     final Path corrupted = tempDir.resolve("corrupted.json");
     Files.writeString(corrupted, MAPPER.writeValueAsString(fixture));
     return corrupted;
+  }
+
+  private static List<String> eventLines(final String stderr) {
+    return stderr.lines().filter(line -> line.startsWith("{\"event\":")).toList();
+  }
+
+  private static String stderr(final String... args) {
+    final PrintStream originalErr = System.err;
+    final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    System.setErr(new PrintStream(stderr, true, UTF_8));
+    try {
+      run(args);
+    } finally {
+      System.setErr(originalErr);
+    }
+    return stderr.toString(UTF_8);
   }
 
   private static String run(final String... args) {

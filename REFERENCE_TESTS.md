@@ -338,9 +338,10 @@ names other clients' runners answer to.
 and deliver each block's access list so it is validated against execution. `--bal-sequential` runs
 every block on the sequential block processor instead; the access list is validated either way.
 
-Both print one JSON line to stderr for each block they execute, naming the executor that ran it,
-and one more when the parallel processor failed a block and re-ran it sequentially (the block's
-result is the sequential one). Nothing of this goes to stdout.
+With `--bal-report`, both print one JSON line to stderr for each block they execute, naming the
+executor that ran it, and one more when the parallel processor failed a block and re-ran it
+sequentially (the block's result is the sequential one). Nothing of this goes to stdout, and
+without the flag nothing of it is printed.
 
 ```text
 {"event":"balExecution","block":1,"hash":"0x…","path":"parallel","reason":"","scheduler":"bal"}

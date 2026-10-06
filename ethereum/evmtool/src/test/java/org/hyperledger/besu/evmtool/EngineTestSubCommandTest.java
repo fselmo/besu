@@ -47,6 +47,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 
 class EngineTestSubCommandTest {
@@ -203,6 +204,41 @@ class EngineTestSubCommandTest {
             forkchoiceFailure(
                 new JsonRpcErrorResponse(null, RpcErrorType.INVALID_FORKCHOICE_STATE)))
         .startsWith("error: -38002");
+  }
+
+  @Test
+  void forkchoiceUpdateErrorCarriesTheExceptionBesuLogged() {
+    final ExecutionEngineJsonRpcMethod forkchoiceUpdated = mock(ExecutionEngineJsonRpcMethod.class);
+    // As Besu's world state provider does: catch the exception, log it, and fail the update.
+    when(forkchoiceUpdated.syncResponse(any()))
+        .thenAnswer(
+            invocation -> {
+              try {
+                rollForward();
+              } catch (final IllegalStateException e) {
+                LoggerFactory.getLogger(
+                        "org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider"
+                            + ".PathBasedWorldStateProvider")
+                    .warn("State rolling failed", e);
+              }
+              return new JsonRpcErrorResponse(
+                  null, RpcErrorType.INTERNAL_ERROR, "Failed to set new head");
+            });
+
+    RejectionReasons.install();
+    try {
+      assertThat(EngineTestSubCommand.forkchoiceFailure(forkchoiceUpdated, 4, Hash.ZERO))
+          .startsWith(
+              "error: -32603 Internal error: Failed to set new head;"
+                  + " java.lang.IllegalStateException: rolled past the trie log at"
+                  + " org.hyperledger.besu.evmtool.EngineTestSubCommandTest.rollForward(");
+    } finally {
+      RejectionReasons.uninstall();
+    }
+  }
+
+  private static void rollForward() {
+    throw new IllegalStateException("rolled past the trie log");
   }
 
   private static JsonRpcResponse forkchoiceStatus(final EngineStatus status) {

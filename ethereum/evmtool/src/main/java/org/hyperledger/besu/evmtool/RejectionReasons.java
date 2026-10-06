@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evmtool;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -39,6 +40,10 @@ import org.slf4j.LoggerFactory;
  * failed logs which check it was. evmtool turns logging off, so that line is lost. While installed,
  * this captures those validators' log lines on the importing thread, and {@link #append} adds them
  * to the error in brackets. The validators and their messages are unchanged.
+ *
+ * <p>It also collects the exceptions Besu logs at WARN or above during the call, which is all that
+ * is left of one a handler catches before answering {@code -32603 Internal error}; {@link
+ * #describe} turns one into text for the error.
  */
 final class RejectionReasons {
 
@@ -60,8 +65,15 @@ final class RejectionReasons {
   private static final List<String> DUMPS =
       List.of("Invalid block RLP", "Transaction receipt found in the invalid block", "--- BAL");
 
+  /** The logger whose descendants' logged exceptions are collected. */
+  @VisibleForTesting static final String BESU_LOGGER = "org.hyperledger.besu";
+
+  // How many of the exception's own Besu frames describe() keeps.
+  private static final int BESU_FRAMES = 5;
+
   // Set only while a runner imports a block, so each worker collects its own block's lines.
   private static final ThreadLocal<List<String>> CAPTURED = new ThreadLocal<>();
+  private static final ThreadLocal<List<Throwable>> THROWN = new ThreadLocal<>();
 
   private static final String APPENDER_NAME = "evmtool-rejection-reasons";
 
@@ -96,6 +108,13 @@ final class RejectionReasons {
       loggerConfig.addAppender(appender, Level.DEBUG, null);
       config.addLogger(name, loggerConfig);
       ADDED_LOGGERS.add(name);
+    }
+    // Not additive: the root logger's appenders would print these lines to stdout.
+    if (!config.getLoggers().containsKey(BESU_LOGGER)) {
+      final LoggerConfig loggerConfig = new LoggerConfig(BESU_LOGGER, Level.WARN, false);
+      loggerConfig.addAppender(appender, Level.WARN, null);
+      config.addLogger(BESU_LOGGER, loggerConfig);
+      ADDED_LOGGERS.add(BESU_LOGGER);
     }
     context.updateLoggers();
   }
@@ -138,12 +157,49 @@ final class RejectionReasons {
    * @return the import's result
    */
   static <T> T capturing(final List<String> reasons, final Supplier<T> importBlock) {
+    return capturing(reasons, new ArrayList<>(), importBlock);
+  }
+
+  /**
+   * Runs a block import or engine call, collecting the validators' log lines into {@code reasons}
+   * and the exceptions Besu logs into {@code thrown}.
+   *
+   * @param reasons where the lines go
+   * @param thrown where the logged exceptions go
+   * @param call the import or engine call
+   * @return the call's result
+   */
+  static <T> T capturing(
+      final List<String> reasons, final List<Throwable> thrown, final Supplier<T> call) {
     CAPTURED.set(reasons);
+    THROWN.set(thrown);
     try {
-      return importBlock.get();
+      return call.get();
     } finally {
       CAPTURED.remove();
+      THROWN.remove();
     }
+  }
+
+  /**
+   * Describes an exception well enough to find where it was thrown: its class and message, those of
+   * its causes, and the first Besu frames of the innermost cause.
+   *
+   * @param thrown the exception
+   * @return the description
+   */
+  static String describe(final Throwable thrown) {
+    final StringBuilder text = new StringBuilder(thrown.toString());
+    Throwable innermost = thrown;
+    while (innermost.getCause() != null && innermost.getCause() != innermost) {
+      innermost = innermost.getCause();
+      text.append(" caused by ").append(innermost);
+    }
+    Arrays.stream(innermost.getStackTrace())
+        .filter(frame -> frame.getClassName().startsWith(BESU_LOGGER))
+        .limit(BESU_FRAMES)
+        .forEach(frame -> text.append(" at ").append(frame));
+    return text.toString();
   }
 
   /**
@@ -184,7 +240,14 @@ final class RejectionReasons {
 
     @Override
     public void append(final LogEvent event) {
-      capture(event.getMessage().getFormattedMessage());
+      // The other Besu loggers' lines are not reasons, only their exceptions are kept.
+      if (VALIDATOR_LOGGERS.stream().anyMatch(event.getLoggerName()::startsWith)) {
+        capture(event.getMessage().getFormattedMessage());
+      }
+      final List<Throwable> thrown = THROWN.get();
+      if (thrown != null && event.getThrown() != null) {
+        thrown.add(event.getThrown());
+      }
     }
   }
 }

@@ -184,7 +184,12 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       if (worldState instanceof BonsaiWorldState) {
         ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
       }
-      return sequentialBlockProcessor.get().processBlock(context);
+      final BlockProcessingResult sequentialResult =
+          sequentialBlockProcessor.get().processBlock(context);
+      balConfiguration
+          .getExecutionPathListener()
+          .onSequentialFallback(block.getHeader(), blockProcessingResult, sequentialResult);
+      return sequentialResult;
     }
     return blockProcessingResult;
   }

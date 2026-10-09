@@ -276,6 +276,19 @@ class EngineTestSubCommandTest {
     }
   }
 
+  @Test
+  void unreadableFileIsReportedWithItsErrorWhenNoTestRan() throws IOException {
+    final Path notAFixture =
+        Files.writeString(tempDir.resolve("not-a-fixture.json"), "{\"test\": [");
+    final String reason = notAFixture + ": not readable as an engine test fixture";
+
+    assertThat(run(notAFixture.toString()))
+        .contains("No engine test was executed.")
+        .contains(reason);
+    assertThat(stderr("--json-array", notAFixture.toString()))
+        .contains("Unreadable file " + reason);
+  }
+
   /**
    * Copies {@code original} with 40,000 storage keys in one postState account, which the runner
    * parses but does not check, so the test still passes.
@@ -309,5 +322,17 @@ class EngineTestSubCommandTest {
     new CommandLine(engineTest).parseArgs(args);
     engineTest.run();
     return stdout.toString(UTF_8);
+  }
+
+  private static String stderr(final String... args) {
+    final PrintStream originalErr = System.err;
+    final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    System.setErr(new PrintStream(stderr, true, UTF_8));
+    try {
+      run(args);
+    } finally {
+      System.setErr(originalErr);
+    }
+    return stderr.toString(UTF_8);
   }
 }

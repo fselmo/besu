@@ -302,7 +302,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       }
       if (jsonArray) {
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
-      } else if (results.hasTests()) {
+        results.printUnreadable(System.err);
+      } else if (results.hasTests() || results.hasUnreadable()) {
         results.printSummary(parentCommand.out);
       }
       exitCode = results.failed() > 0 || setupFailed || ranNothing ? 1 : 0;

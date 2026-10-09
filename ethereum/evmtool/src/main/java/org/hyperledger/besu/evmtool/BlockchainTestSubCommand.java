@@ -228,7 +228,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     AbstractPrecompiledContract.setPrecompileCaching(enablePrecompileCache);
     AbstractBLS12PrecompiledContract.setPrecompileCaching(enablePrecompileCache);
     KZGPointEvalPrecompiledContract.setPrecompileCaching(enablePrecompileCache);
-    final ObjectMapper blockchainTestMapper = JsonUtils.createObjectMapper();
+    final ObjectMapper blockchainTestMapper = JsonUtils.createFixtureMapper();
     final FixtureRunner.TestResults results = new FixtureRunner.TestResults();
 
     final JavaType javaType =

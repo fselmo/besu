@@ -226,7 +226,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
 
   @Override
   public void run() {
-    final ObjectMapper mapper = JsonUtils.createObjectMapper();
+    final ObjectMapper mapper = JsonUtils.createFixtureMapper();
     final FixtureRunner.TestResults results = new FixtureRunner.TestResults();
     final JavaType javaType =
         mapper

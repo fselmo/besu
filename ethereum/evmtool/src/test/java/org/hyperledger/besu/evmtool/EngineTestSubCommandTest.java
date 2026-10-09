@@ -259,6 +259,39 @@ class EngineTestSubCommandTest {
     return changed;
   }
 
+  /**
+   * A big block's storage map tripped Jackson's guard against hash-collision attacks on some runs,
+   * depending on its hash seed. 40,000 zero-padded keys trip it on about a third of runs, so twenty
+   * runs all read the file only with the guard off. The fixture's payload is one Besu rejects,
+   * because the first engine-test run in a JVM stops the harness's scheduler and a valid payload
+   * cannot run after that.
+   */
+  @Test
+  void storageMapLargeEnoughToTripJacksonsCollisionGuardIsRead() throws IOException {
+    final Path bigStorage = withBigPostStateStorage(INVALID_ACCESS_LIST);
+    for (int run = 0; run < 20; run++) {
+      final JsonNode results = MAPPER.readTree(run("--json-array", bigStorage.toString()));
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).get("pass").asBoolean()).isTrue();
+    }
+  }
+
+  /**
+   * Copies {@code original} with 40,000 storage keys in one postState account, which the runner
+   * parses but does not check, so the test still passes.
+   */
+  private Path withBigPostStateStorage(final Path original) throws IOException {
+    final ObjectNode fixture = (ObjectNode) MAPPER.readTree(original.toFile());
+    final ObjectNode storage =
+        (ObjectNode) fixture.elements().next().get("postState").elements().next().get("storage");
+    for (int key = 1; key <= 40_000; key++) {
+      storage.put(String.format("0x%064x", key), "0x01");
+    }
+    final Path bigStorage = tempDir.resolve("big-storage.json");
+    Files.writeString(bigStorage, MAPPER.writeValueAsString(fixture));
+    return bigStorage;
+  }
+
   private static JsonNode result(final Path fixture, final boolean sequential) throws IOException {
     final List<String> args = new ArrayList<>(List.of("--json-array"));
     if (sequential) {

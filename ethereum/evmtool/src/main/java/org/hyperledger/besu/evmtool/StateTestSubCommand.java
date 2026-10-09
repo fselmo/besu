@@ -16,6 +16,7 @@ package org.hyperledger.besu.evmtool;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules.shouldClearEmptyAccounts;
+import static org.hyperledger.besu.evmtool.StateTestSubCommand.COMMAND_ALIAS;
 import static org.hyperledger.besu.evmtool.StateTestSubCommand.COMMAND_NAME;
 
 import org.hyperledger.besu.datatypes.BlobGas;
@@ -84,6 +85,7 @@ import picocli.CommandLine.ParentCommand;
  */
 @Command(
     name = COMMAND_NAME,
+    aliases = COMMAND_ALIAS,
     description = "Execute an Ethereum State Test.",
     mixinStandardHelpOptions = true,
     versionProvider = VersionProvider.class)
@@ -94,6 +96,9 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
    * enter on the command line to invoke this command.
    */
   public static final String COMMAND_NAME = "state-test";
+
+  /** The name every client's runner answers to, so one invocation works across clients. */
+  public static final String COMMAND_ALIAS = "statetest";
 
   /** Set when any executed test fails, so the process exits non-zero (for CI/gradle). */
   private final AtomicBoolean anyFailure = new AtomicBoolean(false);

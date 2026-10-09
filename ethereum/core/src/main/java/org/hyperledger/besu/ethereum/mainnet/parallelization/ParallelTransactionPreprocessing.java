@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.PreprocessingFunction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
@@ -57,17 +58,21 @@ public class ParallelTransactionPreprocessing implements PreprocessingFunction {
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockAccessList> maybeBlockBal,
       final Optional<BlockHeader> maybeParentHeader) {
+    final BlockExecutionPathListener listener = balConfiguration.getExecutionPathListener();
     if (!(protocolContext.getWorldStateArchive() instanceof PathBasedWorldStateProvider)) {
+      listener.onSequential(blockHeader, "not-path-based");
       return Optional.empty();
     }
 
     final ParallelBlockTransactionProcessor parallelProcessor;
 
     if (balConfiguration.isPerfectParallelizationEnabled() && maybeBlockBal.isPresent()) {
+      listener.onParallel(blockHeader, "bal");
       parallelProcessor =
           new BalConcurrentTransactionProcessor(
               transactionProcessor, maybeBlockBal.get(), balConfiguration);
     } else {
+      listener.onParallel(blockHeader, "optimistic");
       parallelProcessor = new OptimisticConcurrentTransactionProcessor(transactionProcessor);
     }
 

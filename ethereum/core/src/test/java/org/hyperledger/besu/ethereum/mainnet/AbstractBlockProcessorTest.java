@@ -127,6 +127,25 @@ abstract class AbstractBlockProcessorTest {
   }
 
   @Test
+  void sequentialImport_ReportsDisabledExecutionPath() {
+    final BlockExecutionPathListener listener = mock(BlockExecutionPathListener.class);
+    final TestBlockProcessor reportingProcessor =
+        new TestBlockProcessor(
+            transactionProcessor,
+            transactionReceiptFactory,
+            Wei.ZERO,
+            BlockHeader::getCoinbase,
+            true,
+            protocolSchedule,
+            ImmutableBalConfiguration.builder().executionPathListener(listener).build());
+    when(protocolSpec.getWithdrawalsProcessor()).thenReturn(Optional.empty());
+    final Block block = testBlockBuilder(emptyList());
+    reportingProcessor.processBlock(
+        protocolContext, blockchain, worldState, block, Optional.empty());
+    verify(listener).onSequential(block.getHeader(), "disabled");
+  }
+
+  @Test
   void hasAvailableBlockBudget_delegates2DCheckToStrategy() {
     // EIP-8037: hasAvailableBlockBudget must delegate to
     // BlockGasAccountingStrategy.hasBlockCapacity so that block import uses the same 2D headroom

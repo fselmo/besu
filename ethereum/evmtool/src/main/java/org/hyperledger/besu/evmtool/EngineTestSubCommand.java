@@ -20,9 +20,13 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
+import static org.hyperledger.besu.evmtool.EngineTestSubCommand.COMMAND_ALIAS;
 import static org.hyperledger.besu.evmtool.EngineTestSubCommand.COMMAND_NAME;
 
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
@@ -54,18 +58,33 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttr
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV4;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncAlgorithmFactory;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.referencetests.EngineTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
+import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProvider;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
+import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -78,13 +97,17 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.function.IntFunction;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.annotations.VisibleForTesting;
 import io.vertx.core.Vertx;
 import org.apache.tuweni.bytes.Bytes;
 import picocli.CommandLine.Command;
@@ -105,6 +128,7 @@ import picocli.CommandLine.ParentCommand;
  */
 @Command(
     name = COMMAND_NAME,
+    aliases = COMMAND_ALIAS,
     description = "Execute an Ethereum Engine Test.",
     mixinStandardHelpOptions = true,
     versionProvider = VersionProvider.class)
@@ -112,6 +136,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
 
   /** The name users type to invoke this subcommand, and the value of the picocli command name. */
   public static final String COMMAND_NAME = "engine-test";
+
+  /** The name every client's runner answers to, so one invocation works across clients. */
+  public static final String COMMAND_ALIAS = "enginetest";
 
   /** Process exit code: 0 when all executed tests pass, 1 when any failed. */
   private volatile int exitCode = 0;
@@ -150,8 +177,27 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   @Option(
       names = {"--json-array"},
       description =
-          "Output results as a JSON array: name, pass, fork, lastBlockHash, lastPayloadStatus, error.")
+          "Output results as a JSON array: name, pass, fork, lastBlockHash, lastPayloadStatus, error,"
+              + " rejections.")
   private boolean jsonArray = false;
+
+  @Option(
+      names = {"--bal-sequential"},
+      description =
+          "Run every payload on the sequential block processor. By default the parallel block"
+              + " processor runs, as on a Bonsai node, scheduling transactions from the payload's block"
+              + " access list. The list is validated either way.")
+  private boolean balSequential = false;
+
+  @Option(
+      names = {"--bal-report"},
+      description =
+          "Print one JSON line to stderr for each payload executed, naming the executor that ran it,"
+              + " and one more when the parallel block processor failed it and re-ran it"
+              + " sequentially. Off by default.")
+  private boolean balReport = false;
+
+  private BlockExecutionPathListener executionPathListener = BlockExecutionPathListener.NONE;
 
   @Option(
       names = {"--verbose"},
@@ -178,7 +224,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
 
   @Override
   public void run() {
-    final ObjectMapper mapper = JsonUtils.createObjectMapper();
+    final ObjectMapper mapper = JsonUtils.createFixtureMapper();
     final FixtureRunner.TestResults results = new FixtureRunner.TestResults();
     final JavaType javaType =
         mapper
@@ -196,6 +242,12 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     }
 
     boolean setupFailed = false;
+    if (balReport) {
+      executionPathListener = new BalExecutionReporter(System.err);
+    }
+    if (jsonArray) {
+      RejectionReasons.install();
+    }
     try {
       if (engineTestFiles.isEmpty()) {
         final BufferedReader in =
@@ -231,6 +283,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       setupFailed = true;
       System.err.println("Error: " + e.getMessage());
     } finally {
+      if (jsonArray) {
+        RejectionReasons.uninstall();
+      }
       // An empty run is not a pass: a typo in --test-name, or a fixture tree that failed to
       // materialise, would otherwise be indistinguishable from a clean sweep.
       boolean ranNothing = false;
@@ -245,7 +300,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       }
       if (jsonArray) {
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
-      } else if (results.hasTests()) {
+        results.printUnreadable(System.err);
+      } else if (results.hasTests() || results.hasUnreadable()) {
         results.printSummary(parentCommand.out);
       }
       exitCode = results.failed() > 0 || setupFailed || ranNothing ? 1 : 0;
@@ -318,6 +374,12 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
             Runtime.getRuntime().availableProcessors(),
             METRICS);
     private static final EthPeers PEERS = new HarnessEthPeers(METRICS);
+    private static final EthContext ETH_CONTEXT =
+        new EthContext(PEERS, new EthMessages(), SCHEDULER, null);
+    private static final SynchronizerConfiguration SYNC_CONFIGURATION =
+        SynchronizerConfiguration.builder().build();
+    private static final BackwardSyncAlgorithmFactory BACKWARD_SYNC_ALGORITHMS =
+        new BackwardSyncAlgorithmFactory();
 
     // Shared no-op listener — avoids creating an anonymous class per test
     private static final EngineCallListener LISTENER =
@@ -427,7 +489,10 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     try {
       schedule =
           ReferenceTestProtocolSchedules.cached(
-                  parentCommand.getEvmConfiguration(), spec.getBlobScheduleOptions().orElse(null))
+                  parentCommand.getEvmConfiguration(),
+                  spec.getBlobScheduleOptions().orElse(null),
+                  !balSequential,
+                  executionPathListener)
               .getByName(spec.getNetwork());
     } catch (final RuntimeException e) {
       recordResult(
@@ -451,6 +516,44 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     }
   }
 
+  /**
+   * Builds the node's own {@link MergeCoordinator} for one test's chain, so newPayload and
+   * forkchoiceUpdated store, validate and move the head exactly as they do on a node.
+   *
+   * <p>Only state is built here: the coordinator, its mining configuration (which it fills from the
+   * schedule) and its backward chain. Backward sync is wired but never starts: the merge context
+   * never reports initial sync as done, and there are no peers. So it gets no sync state, which
+   * would subscribe to the shared peers for every test and keep each chain alive. No transaction
+   * pool is given because no forkchoiceUpdated here carries payload attributes, so no block is ever
+   * built.
+   */
+  private static MergeCoordinator newMergeCoordinator(
+      final ProtocolContext context, final ProtocolSchedule schedule) {
+    final BackwardSyncContext backwardSyncContext =
+        new BackwardSyncContext(
+            context,
+            schedule,
+            EngineHarness.SYNC_CONFIGURATION,
+            EngineHarness.METRICS,
+            EngineHarness.ETH_CONTEXT,
+            // Read only by backward sync, which waits for isInitialSyncDone(), never set here.
+            null,
+            BackwardChain.from(
+                new KeyValueStorageProvider(
+                    SegmentedInMemoryKeyValueStorage::new,
+                    new InMemoryKeyValueStorage(),
+                    EngineHarness.METRICS),
+                ScheduleBasedBlockHeaderFunctions.create(schedule)),
+            EngineHarness.BACKWARD_SYNC_ALGORITHMS);
+    return new MergeCoordinator(
+        context,
+        schedule,
+        EngineHarness.SCHEDULER,
+        null,
+        MiningConfiguration.newDefault(),
+        backwardSyncContext);
+  }
+
   /** The engine replay proper, with {@code context} owned (and released) by the caller. */
   private void runAgainstEngine(
       final String test,
@@ -463,8 +566,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     // Use shared static instances to avoid thread exhaustion across tests. Recorded so run() knows
     // whether there is anything to shut down without touching the holder and initialising it.
     harnessUsed = true;
-    final EvmToolMergeCoordinator coordinator =
-        new EvmToolMergeCoordinator(context, schedule, EngineHarness.SCHEDULER);
+    final MergeCoordinator coordinator = newMergeCoordinator(context, schedule);
 
     // Lazily create engine methods — most tests use only 1-2 versions, not all 9
     final ExecutionEngineJsonRpcMethod.ConstructorArguments ctorArgs =
@@ -578,22 +680,11 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       return;
     }
     try {
-      final var fcuParam =
-          new ForkchoiceStateV1(
-              spec.getGenesisBlockHeader().getHash(),
-              spec.getGenesisBlockHeader().getHash(),
-              spec.getGenesisBlockHeader().getHash());
-      final JsonRpcResponse fcuResponse =
-          initialFcu.syncResponse(
-              new JsonRpcRequestContext(
-                  new JsonRpcRequest(
-                      "2.0",
-                      "engine_forkchoiceUpdatedV" + initialFcuVersion,
-                      new Object[] {fcuParam, null})));
-      if (fcuResponse instanceof JsonRpcErrorResponse err) {
+      final String fcuFailure =
+          forkchoiceFailure(initialFcu, initialFcuVersion, spec.getGenesisBlockHeader().getHash());
+      if (fcuFailure != null) {
         testPassed = false;
-        failureReason =
-            "Initial FCU error: " + err.getError().getCode() + " " + err.getError().getMessage();
+        failureReason = "Initial FCU " + fcuFailure;
       }
     } catch (final Exception e) {
       testPassed = false;
@@ -605,6 +696,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       return;
     }
 
+    final ArrayNode rejections = FixtureRunner.newRejections();
     for (int i = 0; i < payloads.length; i++) {
       final EngineTestCaseSpec.EngineNewPayload payload = payloads[i];
       final int version = payload.getNewPayloadVersion();
@@ -642,6 +734,12 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
                   : null;
         }
       } catch (final JsonProcessingException e) {
+        // The engine would answer params it cannot deserialize with InvalidParams.
+        FixtureRunner.addRejection(
+            rejections,
+            i,
+            Optional.empty(),
+            rpcError(new JsonRpcError(RpcErrorType.INVALID_PARAMS)));
         if (payload.expectsValid()) {
           testPassed = false;
           failureReason = String.format("payload %d: param parse error: %s", i, e.getMessage());
@@ -663,15 +761,26 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
 
       try {
         // Call the real engine method directly
+        final List<String> reasons = new ArrayList<>();
+        final List<Throwable> thrown = new ArrayList<>();
         final JsonRpcResponse response =
-            method.syncResponse(
-                new JsonRpcRequestContext(
-                    new JsonRpcRequest("2.0", "engine_newPayloadV" + version, rpcParams)));
+            RejectionReasons.capturing(
+                reasons,
+                thrown,
+                () ->
+                    method.syncResponse(
+                        new JsonRpcRequestContext(
+                            new JsonRpcRequest("2.0", "engine_newPayloadV" + version, rpcParams))));
 
         // Handle RPC-level errors (the engine method returned a JSON-RPC error response).
         // Mirrors the hive consume-engine oracle: when the fixture sets an errorCode the
         // returned code must match exactly; when it does not, any RPC error is unexpected.
         if (response instanceof JsonRpcErrorResponse errorResponse) {
+          FixtureRunner.addRejection(
+              rejections,
+              i,
+              Optional.empty(),
+              rpcError(errorResponse.getError(), "engine_newPayloadV" + version, thrown));
           String mismatch =
               checkExpectedErrorCode(i, payload.getErrorCode(), errorResponse.getError().getCode());
           if (mismatch != null) {
@@ -690,6 +799,18 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         final PayloadStatusV1 status =
             (PayloadStatusV1) ((JsonRpcSuccessResponse) response).getResult();
         lastPayloadStatus = status.getStatus();
+        if (INVALID.equals(status.getStatus())) {
+          FixtureRunner.addRejection(
+              rejections,
+              i,
+              Optional.of(Hash.fromHexString(payload.getParams()[0].get("blockHash").asText())),
+              RejectionReasons.append(Objects.toString(status.getError(), ""), reasons));
+        } else if (INVALID_BLOCK_HASH.equals(status.getStatus())) {
+          // The client's hash of the payload is not the one it was sent, so there is none to
+          // report.
+          FixtureRunner.addRejection(
+              rejections, i, Optional.empty(), Objects.toString(status.getError(), ""));
+        }
 
         // A fixture that expects an Engine API errorCode requires an actual JSON-RPC error
         // response; a status response, even INVALID, does not satisfy it. This is the distinction
@@ -729,27 +850,14 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
                     "payload %d: unsupported forkchoiceUpdated version %d", i, fcuVersion);
             break;
           }
-          final var fcuParam =
-              new ForkchoiceStateV1(
-                  Hash.fromHexString(blockHash),
-                  Hash.fromHexString(blockHash),
-                  Hash.fromHexString(blockHash));
-          final JsonRpcResponse fcuResponse =
-              fcuMethod.syncResponse(
-                  new JsonRpcRequestContext(
-                      new JsonRpcRequest(
-                          "2.0",
-                          "engine_forkchoiceUpdatedV" + fcuVersion,
-                          new Object[] {fcuParam, null})));
-          if (fcuResponse instanceof JsonRpcErrorResponse fcuErr) {
+          final String fcuFailure =
+              forkchoiceFailure(fcuMethod, fcuVersion, Hash.fromHexString(blockHash));
+          if (fcuFailure != null) {
             testPassed = false;
-            failureReason =
-                String.format(
-                    "payload %d: FCU error: %d %s",
-                    i, fcuErr.getError().getCode(), fcuErr.getError().getMessage());
+            failureReason = String.format("payload %d: FCU %s", i, fcuFailure);
             break;
           }
-          if (verbose && fcuResponse instanceof JsonRpcSuccessResponse) {
+          if (verbose) {
             parentCommand.out.printf("Payload %d: FCU VALID%n", i);
           }
         } else {
@@ -781,6 +889,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       } catch (final InvalidJsonRpcRequestException e) {
         // Calling syncResponse() directly throws this for param-level errors; over the wire it
         // would surface as a JSON-RPC error, so apply the same errorCode matching as above.
+        FixtureRunner.addRejection(
+            rejections, i, Optional.empty(), rpcError(new JsonRpcError(e.getRpcErrorType())));
         final String mismatch =
             checkExpectedErrorCode(i, payload.getErrorCode(), e.getRpcErrorType().getCode());
         if (mismatch != null) {
@@ -814,7 +924,89 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         testPassed,
         testPassed ? "" : failureReason,
         lastPayloadStatus,
+        rejections,
         results);
+  }
+
+  /**
+   * Formats a JSON-RPC error as the rejection reason: {@code <code>: <message>}, followed by {@code
+   * : <data>} when the error carries data.
+   */
+  private static String rpcError(final JsonRpcError error) {
+    return rpcError(error, "", List.of());
+  }
+
+  /**
+   * Formats a JSON-RPC error as {@link #rpcError(JsonRpcError)} does, with the exceptions Besu
+   * logged during the call added to its data.
+   */
+  private static String rpcError(
+      final JsonRpcError error, final String method, final List<Throwable> thrown) {
+    return error.getCode() + ": " + error.getMessage() + dataSuffix(error, method, thrown);
+  }
+
+  /**
+   * Returns {@code : <data>} for an error's data followed by the exceptions Besu logged during the
+   * call, which is all that is left of one a handler caught before answering with the error, or
+   * nothing when there are neither. Each exception is also printed in full to stderr.
+   */
+  private static String dataSuffix(
+      final JsonRpcError error, final String method, final List<Throwable> thrown) {
+    final List<String> data = new ArrayList<>();
+    if (error.getData() != null) {
+      data.add(error.getData());
+    }
+    for (final Throwable t : thrown) {
+      data.add(RejectionReasons.describe(t));
+      System.err.println(method + " answered " + error.getCode() + " after Besu logged:");
+      t.printStackTrace(System.err);
+    }
+    return data.isEmpty() ? "" : ": " + String.join("; ", data);
+  }
+
+  /**
+   * Makes {@code head} the chain head the way hive's consume-engine does: safe and finalized left
+   * at zero, no payload attributes, and anything but a VALID status is a failure.
+   *
+   * @return {@code null} when the update is VALID, otherwise why it is not
+   */
+  @VisibleForTesting
+  static String forkchoiceFailure(
+      final ExecutionEngineJsonRpcMethod fcuMethod, final int version, final Hash head) {
+    final String method = "engine_forkchoiceUpdatedV" + version;
+    final List<Throwable> thrown = new ArrayList<>();
+    final JsonRpcResponse response =
+        RejectionReasons.capturing(
+            new ArrayList<>(),
+            thrown,
+            () ->
+                fcuMethod.syncResponse(
+                    new JsonRpcRequestContext(
+                        new JsonRpcRequest(
+                            "2.0",
+                            method,
+                            new Object[] {
+                              new ForkchoiceStateV1(head, Hash.ZERO, Hash.ZERO), null
+                            }))));
+    if (response instanceof JsonRpcErrorResponse err) {
+      final JsonRpcError error = err.getError();
+      return "error: "
+          + error.getCode()
+          + " "
+          + error.getMessage()
+          + dataSuffix(error, method, thrown);
+    }
+    final PayloadStatusV1 status =
+        ((ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult())
+            .getPayloadStatus();
+    if (!VALID.equals(status.getStatus())) {
+      return "status: expected VALID, got "
+          + status.getStatus()
+          + " (err: "
+          + status.getError()
+          + ")";
+    }
+    return null;
   }
 
   /** Records an outcome reached before any payload was replayed, so with no engine status yet. */
@@ -825,7 +1017,15 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       final boolean testPassed,
       final String failureReason,
       final FixtureRunner.TestResults results) {
-    recordResult(test, spec, blockchain, testPassed, failureReason, null, results);
+    recordResult(
+        test,
+        spec,
+        blockchain,
+        testPassed,
+        failureReason,
+        null,
+        FixtureRunner.newRejections(),
+        results);
   }
 
   /**
@@ -845,6 +1045,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       final boolean testPassed,
       final String failureReason,
       final EngineStatus lastPayloadStatus,
+      final ArrayNode rejections,
       final FixtureRunner.TestResults results) {
     if (testPassed) {
       if (verbose) {
@@ -872,6 +1073,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       // carrying that payload's message here would make a passing row indistinguishable from a
       // failed one.
       result.put("error", failureReason);
+      result.set("rejections", rejections);
       jsonArrayResults.add(result);
     }
   }

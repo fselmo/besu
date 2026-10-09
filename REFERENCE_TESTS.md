@@ -327,7 +327,15 @@ $EVM block-test  --workers 8 <path-to>/blockchain_tests/           # consume-rlp
 A directory argument is walked recursively and spread over `--workers` workers. `--test-name-regex`
 is the raw form of `-PsimLimit` and takes the same expression (`.*(7928|8282).*`); `--test-name` is
 the glob form described above. `--json-array` emits machine-readable results (`[{name, pass, fork,
-lastBlockHash, error}]`) and nothing else, so the exit code is what reports an empty or failed run.
+lastBlockHash, error, rejections}]`) and nothing else, so the exit code is what reports an empty or
+failed run. `rejections` lists every block or payload Besu rejected, as
+`{"index": <position in blocks or engineNewPayloads>, "hash": "0x…", "error": "<Besu's error>"}`,
+with the error verbatim (a JSON-RPC error as `<code>: <message>`, then `: <data>` when it has
+data) and no `hash` when Besu computed none. Besu's error for a failed header, body or block access
+list check is generic (`Header validation failed (LIGHT)`), so the line the failing validator logged
+follows it in brackets: `Header validation failed (LIGHT) [Invalid block header: gasLimit = 0 is
+outside range 5000 --> 9223372036854775807]`. `block-test` does not check that error against the
+fixture's expected exception; a consumer such as EEST's `consume` does, through its Besu mapper.
 
 A single fixture file can also be piped in as `stdin`, which all three subcommands accept:
 
@@ -336,7 +344,44 @@ $EVM engine-test stdin < <path-to>/one_fixture.json
 ```
 
 `engine-test` prints failures and a final summary only; `--verbose` adds a line per test.
-`block-test` logs every imported block, so pipe through `grep -v 'Imported in'` for a quiet run.
+`block-test` logs every imported block unless `--json-array` is given, so pipe through
+`grep -v 'Imported in'` for a quiet run.
+
+`blocktest`, `enginetest` and `statetest` are accepted as aliases of the three subcommands, the
+names other clients' runners answer to.
+
+#### Parallel and sequential execution
+
+`block-test` and `engine-test` run blocks on the parallel block processor, as a Bonsai node does.
+`--bal-sequential` runs every block on the sequential block processor instead.
+
+`engine-test` takes each block's access list from the payload, where a list that does not match
+execution makes the payload invalid. `block-test` delivers the fixture's list beside the block, as a
+peer does during sync, and uses it only when it hashes to the header's `blockAccessListHash`;
+otherwise it drops the list and the block runs without one, judged on its header alone. Both hold
+in either mode.
+
+With `--bal-report`, both print one JSON line to stderr for each block they execute, naming the
+executor that ran it, and one more when the parallel processor failed a block and re-ran it
+sequentially (the block's result is the sequential one). Nothing of this goes to stdout, and
+without the flag nothing of it is printed.
+
+```text
+{"event":"balExecution","block":1,"hash":"0x…","path":"parallel","reason":"","scheduler":"bal"}
+{"event":"balExecution","block":1,"hash":"0x…","path":"sequential","reason":"disabled"}
+{"event":"balFallback","block":1,"hash":"0x…","parallelError":"…","sequentialResult":"invalid","sequentialError":"…"}
+```
+
+`scheduler` is `bal` when transactions are scheduled from the block's access list and `optimistic`
+when the block has none. A sequential line's `reason` is `disabled` under `--bal-sequential`, or
+`not-path-based` when the world state cannot run transactions in parallel. When `block-test` dropped
+the block's access list, `reason` is `bad-access-list` on either path and in either mode.
+
+`block-test --bal-withhold` imports every block without its delivered access list, valid or not, so
+the block is judged on its header and Besu builds the list itself, as a node without the list does;
+on the parallel processor that is the `optimistic` scheduler. Each line's `reason` is then
+`withheld`. `engine-test` has no such flag, because there the list is part of the payload. Under
+`--workers`, lines from different fixtures interleave; `hash` ties each line to its block.
 
 > The Gradle-extracted fixtures live at
 > `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/`, so you can point the binary

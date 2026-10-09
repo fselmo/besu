@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
 /**
@@ -43,4 +44,17 @@ public interface BlockExecutionPathListener {
    *     transactions in parallel
    */
   default void onSequential(final BlockHeader header, final String reason) {}
+
+  /**
+   * The parallel executor failed the block and it was run again sequentially. The block's result is
+   * the sequential one.
+   *
+   * @param header the block's header
+   * @param parallelResult the parallel executor's failed result
+   * @param sequentialResult the sequential re-run's result
+   */
+  default void onSequentialFallback(
+      final BlockHeader header,
+      final BlockProcessingResult parallelResult,
+      final BlockProcessingResult sequentialResult) {}
 }

@@ -263,6 +263,19 @@ class BlockchainTestSubCommandTest {
     }
   }
 
+  @Test
+  void unreadableFileIsReportedWithItsErrorWhenNoTestRan() throws IOException {
+    final Path notAFixture =
+        Files.writeString(tempDir.resolve("not-a-fixture.json"), "{\"test\": [");
+    final String reason = notAFixture + ": not readable as a blockchain test fixture";
+
+    assertThat(run(notAFixture.toString()))
+        .contains("No blockchain test was executed.")
+        .contains(reason);
+    assertThat(stderr("--json-array", notAFixture.toString()))
+        .contains("Unreadable file " + reason);
+  }
+
   /**
    * Copies {@link #FIXTURE} with 40,000 storage keys in one postState account, which the runner
    * parses but does not check, so the test still passes.

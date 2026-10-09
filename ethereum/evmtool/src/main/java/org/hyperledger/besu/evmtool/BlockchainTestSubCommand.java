@@ -308,7 +308,8 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       exitCode = results.failed() > 0 || setupFailed || !results.hasTests() ? 1 : 0;
       if (jsonArray) {
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
-      } else if (results.hasTests()) {
+        results.printUnreadable(System.err);
+      } else if (results.hasTests() || results.hasUnreadable()) {
         results.printSummary(parentCommand.out);
       }
     }

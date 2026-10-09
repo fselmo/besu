@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Hash;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -222,6 +223,10 @@ final class FixtureRunner {
       return passedTests.get() + failedTests.get() > 0;
     }
 
+    boolean hasUnreadable() {
+      return !unreadable.isEmpty();
+    }
+
     int failed() {
       return failedTests.get();
     }
@@ -247,6 +252,16 @@ final class FixtureRunner {
         unreadable.forEach((file, reason) -> out.printf("  - %s: %s%n", file, reason));
       }
       out.println(SEPARATOR);
+    }
+
+    /**
+     * Prints each unreadable file with its error, one per line, for {@code --json-array} runs,
+     * whose stdout carries only the result array.
+     *
+     * @param err where to print
+     */
+    void printUnreadable(final PrintStream err) {
+      unreadable.forEach((file, reason) -> err.printf("Unreadable file %s: %s%n", file, reason));
     }
   }
 }

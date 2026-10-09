@@ -569,7 +569,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
   /**
    * Starts executing the block's transactions speculatively in parallel, before they are executed
    * in order. The returned processor is handed to {@link #processTransaction} for each transaction
-   * and aborted once the block is processed. Starts nothing by default.
+   * and aborted once the block is processed. Starts nothing by default, which is the sequential
+   * processor's choice of path.
    */
   @SuppressWarnings("unused") // the parameters are used by subclasses
   protected Optional<ParallelBlockTransactionProcessor> startParallelExecution(
@@ -582,6 +583,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockAccessList> blockAccessList,
       final Optional<BlockHeader> maybeParentHeader) {
+    balConfiguration.getExecutionPathListener().onSequential(blockHeader, "disabled");
     return Optional.empty();
   }
 

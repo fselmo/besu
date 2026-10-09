@@ -22,7 +22,8 @@ import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
+import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -68,8 +69,8 @@ public class ReferenceTestProtocolSchedules {
           "eip158tobyzantiumat5");
 
   /**
-   * Guarded by {@link #cached(EvmConfiguration, BlobScheduleOptions, boolean)}, which is
-   * synchronized.
+   * Guarded by {@link #cached(EvmConfiguration, BlobScheduleOptions, boolean,
+   * BlockExecutionPathListener)}, which is synchronized.
    */
   private static final Map<CacheKey, ReferenceTestProtocolSchedules> CACHED_SCHEDULES =
       new HashMap<>();
@@ -77,7 +78,8 @@ public class ReferenceTestProtocolSchedules {
   private record CacheKey(
       EvmConfiguration evmConfiguration,
       ObjectNode blobSchedule,
-      boolean isParallelTxProcessingEnabled) {}
+      boolean isParallelTxProcessingEnabled,
+      BlockExecutionPathListener executionPathListener) {}
 
   public static ReferenceTestProtocolSchedules create() {
     return create(new StubGenesisConfigOptions(), EvmConfiguration.DEFAULT);
@@ -95,24 +97,27 @@ public class ReferenceTestProtocolSchedules {
    * @param blobScheduleOptions the blob schedule from the fixture config, or null for defaults
    * @param isParallelTxProcessingEnabled build the parallel block processor a Bonsai node runs by
    *     default, rather than the sequential one
+   * @param executionPathListener told which executor runs each block
    * @return the schedules
    */
   public static ReferenceTestProtocolSchedules create(
       final EvmConfiguration evmConfiguration,
       final BlobScheduleOptions blobScheduleOptions,
-      final boolean isParallelTxProcessingEnabled) {
+      final boolean isParallelTxProcessingEnabled,
+      final BlockExecutionPathListener executionPathListener) {
     final StubGenesisConfigOptions genesisStub = new StubGenesisConfigOptions();
     if (blobScheduleOptions != null) {
       genesisStub.blobScheduleOptions(blobScheduleOptions);
     }
-    return create(genesisStub, evmConfiguration, isParallelTxProcessingEnabled);
+    return create(
+        genesisStub, evmConfiguration, isParallelTxProcessingEnabled, executionPathListener);
   }
 
   /**
-   * As {@link #create(EvmConfiguration, BlobScheduleOptions, boolean)}, but built once per distinct
-   * blob schedule and shared by every caller. Fixture runners hand each fixture's own blob schedule
-   * in, and a fixture tree holds only a handful of distinct ones, so building a schedule set per
-   * fixture is pure waste.
+   * As {@link #create(EvmConfiguration, BlobScheduleOptions, boolean, BlockExecutionPathListener)},
+   * but built once per distinct blob schedule and shared by every caller. Fixture runners hand each
+   * fixture's own blob schedule in, and a fixture tree holds only a handful of distinct ones, so
+   * building a schedule set per fixture is pure waste.
    *
    * <p>Synchronized rather than a {@code ConcurrentHashMap.computeIfAbsent}: the map holds a key
    * per distinct blob schedule, so per-key serialisation would still let several threads into
@@ -132,30 +137,39 @@ public class ReferenceTestProtocolSchedules {
    * @param blobScheduleOptions the blob schedule from the fixture config, or null for defaults
    * @param isParallelTxProcessingEnabled build the parallel block processor rather than the
    *     sequential one; the two are cached apart
+   * @param executionPathListener told which executor runs each block; each listener gets its own
+   *     schedules
    * @return the schedules
    */
   public static synchronized ReferenceTestProtocolSchedules cached(
       final EvmConfiguration evmConfiguration,
       final BlobScheduleOptions blobScheduleOptions,
-      final boolean isParallelTxProcessingEnabled) {
+      final boolean isParallelTxProcessingEnabled,
+      final BlockExecutionPathListener executionPathListener) {
     final ObjectNode key =
         blobScheduleOptions == null
             ? JsonUtil.createEmptyObjectNode()
             : blobScheduleOptions.getConfigRoot().deepCopy();
     return CACHED_SCHEDULES.computeIfAbsent(
-        new CacheKey(evmConfiguration, key, isParallelTxProcessingEnabled),
-        ignored -> create(evmConfiguration, blobScheduleOptions, isParallelTxProcessingEnabled));
+        new CacheKey(evmConfiguration, key, isParallelTxProcessingEnabled, executionPathListener),
+        ignored ->
+            create(
+                evmConfiguration,
+                blobScheduleOptions,
+                isParallelTxProcessingEnabled,
+                executionPathListener));
   }
 
   public static ReferenceTestProtocolSchedules create(
       final StubGenesisConfigOptions genesisStub, final EvmConfiguration evmConfiguration) {
-    return create(genesisStub, evmConfiguration, false);
+    return create(genesisStub, evmConfiguration, false, BlockExecutionPathListener.NONE);
   }
 
   private static ReferenceTestProtocolSchedules create(
       final StubGenesisConfigOptions genesisStub,
       final EvmConfiguration evmConfiguration,
-      final boolean isParallelTxProcessingEnabled) {
+      final boolean isParallelTxProcessingEnabled,
+      final BlockExecutionPathListener executionPathListener) {
     // the following schedules activate EIP-1559, but may have non-default
     if (genesisStub.getBaseFeePerGas().isEmpty()) {
       genesisStub.baseFeePerGas(0x0a);
@@ -163,7 +177,9 @@ public class ReferenceTestProtocolSchedules {
     // also load KZG file for mainnet
     KZGPointEvalPrecompiledContract.init();
     final Function<GenesisConfigOptions, ProtocolSchedule> schedule =
-        options -> createSchedule(options, evmConfiguration, isParallelTxProcessingEnabled);
+        options ->
+            createSchedule(
+                options, evmConfiguration, isParallelTxProcessingEnabled, executionPathListener);
     return new ReferenceTestProtocolSchedules(
         Map.ofEntries(
                 Map.entry("Frontier", schedule.apply(genesisStub.clone())),
@@ -325,7 +341,8 @@ public class ReferenceTestProtocolSchedules {
   private static ProtocolSchedule createSchedule(
       final GenesisConfigOptions options,
       final EvmConfiguration evmConfiguration,
-      final boolean isParallelTxProcessingEnabled) {
+      final boolean isParallelTxProcessingEnabled,
+      final BlockExecutionPathListener executionPathListener) {
     return new ProtocolScheduleBuilder(
             options,
             Optional.of(CHAIN_ID),
@@ -335,7 +352,9 @@ public class ReferenceTestProtocolSchedules {
             MiningConfiguration.MINING_DISABLED,
             new BadBlockManager(),
             isParallelTxProcessingEnabled,
-            BalConfiguration.DEFAULT,
+            ImmutableBalConfiguration.builder()
+                .executionPathListener(executionPathListener)
+                .build(),
             new NoOpMetricsSystem())
         .createProtocolSchedule();
   }

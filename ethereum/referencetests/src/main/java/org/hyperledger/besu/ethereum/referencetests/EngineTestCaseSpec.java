@@ -242,6 +242,7 @@ public class EngineTestCaseSpec {
     private final String forkchoiceUpdatedVersion;
     private final String validationError;
     private final String errorCode;
+    private final Boolean inclusionListSatisfied;
 
     @JsonCreator
     public EngineNewPayload(
@@ -249,12 +250,14 @@ public class EngineTestCaseSpec {
         @JsonProperty("newPayloadVersion") final String newPayloadVersion,
         @JsonProperty("forkchoiceUpdatedVersion") final String forkchoiceUpdatedVersion,
         @JsonProperty("validationError") final String validationError,
-        @JsonProperty("errorCode") final String errorCode) {
+        @JsonProperty("errorCode") final String errorCode,
+        @JsonProperty("inclusionListSatisfied") final Boolean inclusionListSatisfied) {
       this.params = params;
       this.newPayloadVersion = newPayloadVersion;
       this.forkchoiceUpdatedVersion = forkchoiceUpdatedVersion;
       this.validationError = validationError;
       this.errorCode = errorCode;
+      this.inclusionListSatisfied = inclusionListSatisfied;
     }
 
     public JsonNode[] getParams() {
@@ -275,6 +278,14 @@ public class EngineTestCaseSpec {
 
     public String getErrorCode() {
       return errorCode;
+    }
+
+    /**
+     * Returns whether the payload's inclusion list is satisfied (EIP-7805), or null when the
+     * fixture does not say.
+     */
+    public Boolean getInclusionListSatisfied() {
+      return inclusionListSatisfied;
     }
 
     /** Returns true if this payload is expected to be valid. */

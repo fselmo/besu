@@ -17,6 +17,7 @@ package org.hyperledger.besu.evmtool;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
@@ -39,11 +40,13 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineF
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV4;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV5;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV5;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV6;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
@@ -54,10 +57,12 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceU
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV4;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV5;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -65,6 +70,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV2;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
@@ -627,7 +633,12 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
                           new EngineNewPayloadV5<
                               ExecutionPayloadV4,
                               NewPayloadRequestParametersV3<ExecutionPayloadV4>>(
-                              ctorArgs, AMSTERDAM, null);
+                              ctorArgs, AMSTERDAM, BOGOTA);
+                      case 6 ->
+                          new EngineNewPayloadV6<
+                              ExecutionPayloadV4,
+                              NewPayloadRequestParametersV4<ExecutionPayloadV4>>(
+                              ctorArgs, BOGOTA, null);
                       default -> null;
                     });
     final IntFunction<ExecutionEngineJsonRpcMethod> getFcu =
@@ -655,7 +666,12 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
                           new EngineForkchoiceUpdatedV4<
                               PayloadAttributesV4,
                               ForkchoiceUpdatedRequestParametersV2<PayloadAttributesV4>>(
-                              ctorArgs, AMSTERDAM, null);
+                              ctorArgs, AMSTERDAM, BOGOTA);
+                      case 5 ->
+                          new EngineForkchoiceUpdatedV5<
+                              PayloadAttributesV5,
+                              ForkchoiceUpdatedRequestParametersV2<PayloadAttributesV5>>(
+                              ctorArgs, BOGOTA, null);
                       default -> null;
                     });
 
@@ -734,6 +750,13 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           rpcParams[3] =
               fixtureParams[3].isArray()
                   ? SHARED_PARAMS_MAPPER.treeToValue(fixtureParams[3], List.class)
+                  : null;
+        }
+        // params[4] = inclusion list transactions (V6+) as List<String>
+        if (fixtureParams.length > 4) {
+          rpcParams[4] =
+              fixtureParams[4].isArray()
+                  ? SHARED_PARAMS_MAPPER.treeToValue(fixtureParams[4], List.class)
                   : null;
         }
       } catch (final JsonProcessingException e) {
@@ -827,6 +850,18 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           break;
         }
 
+        // Mirrors consume engine: a status not deemed VALID carries no inclusionListSatisfied,
+        // and a VALID one carries the fixture's verdict whenever the fixture has one.
+        final Boolean responseIls =
+            status instanceof PayloadStatusV2 v2 ? v2.getInclusionListSatisfied() : null;
+        if (!VALID.equals(status.getStatus()) && responseIls != null) {
+          testPassed = false;
+          failureReason =
+              String.format(
+                  "payload %d: expected null inclusionListSatisfied on a %s payload, got %s",
+                  i, status.getStatus(), responseIls);
+          break;
+        }
         if (payload.expectsValid()) {
           if (!VALID.equals(status.getStatus())) {
             testPassed = false;
@@ -834,6 +869,15 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
                 String.format(
                     "payload %d: expected VALID, got %s (err: %s)",
                     i, status.getStatus(), status.getError());
+            break;
+          }
+          final Boolean expectedIls = payload.getInclusionListSatisfied();
+          if (expectedIls != null && !expectedIls.equals(responseIls)) {
+            testPassed = false;
+            failureReason =
+                String.format(
+                    "payload %d: expected inclusionListSatisfied %s, got %s",
+                    i, expectedIls, responseIls);
             break;
           }
           if (verbose) {
@@ -854,7 +898,11 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
             break;
           }
           final String fcuFailure =
-              forkchoiceFailure(fcuMethod, fcuVersion, Hash.fromHexString(blockHash));
+              forkchoiceFailure(
+                  fcuMethod,
+                  fcuVersion,
+                  Hash.fromHexString(blockHash),
+                  payload.getInclusionListSatisfied());
           if (fcuFailure != null) {
             testPassed = false;
             failureReason = String.format("payload %d: FCU %s", i, fcuFailure);
@@ -977,6 +1025,21 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   @VisibleForTesting
   static @Nullable String forkchoiceFailure(
       final ExecutionEngineJsonRpcMethod fcuMethod, final int version, final Hash head) {
+    return forkchoiceFailure(fcuMethod, version, head, null);
+  }
+
+  /**
+   * Makes {@code head} the chain head as {@link #forkchoiceFailure(ExecutionEngineJsonRpcMethod,
+   * int, Hash)} does, and also requires the head's inclusion list verdict (EIP-7805) to be {@code
+   * expectedIls} when that is not null.
+   *
+   * @return {@code null} when the update is VALID with the expected verdict, otherwise why not
+   */
+  static @Nullable String forkchoiceFailure(
+      final ExecutionEngineJsonRpcMethod fcuMethod,
+      final int version,
+      final Hash head,
+      final @Nullable Boolean expectedIls) {
     final String method = "engine_forkchoiceUpdatedV" + version;
     final List<Throwable> thrown = new ArrayList<>();
     final JsonRpcResponse response =
@@ -1009,6 +1072,13 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           + " (err: "
           + status.getError()
           + ")";
+    }
+    if (expectedIls != null) {
+      final Boolean ils =
+          status instanceof PayloadStatusV2 v2 ? v2.getInclusionListSatisfied() : null;
+      if (!expectedIls.equals(ils)) {
+        return "inclusionListSatisfied: expected " + expectedIls + ", got " + ils;
+      }
     }
     return null;
   }

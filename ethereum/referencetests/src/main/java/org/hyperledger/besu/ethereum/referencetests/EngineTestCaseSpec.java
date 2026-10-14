@@ -228,9 +228,7 @@ public class EngineTestCaseSpec {
     }
 
     updater.commit();
-    worldState.persist(null);
-
-    worldStateArchive.resetArchiveStateTo(genesisBlockHeader);
+    worldState.persist(genesisBlockHeader);
     return worldStateArchive;
   }
 

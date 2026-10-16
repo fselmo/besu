@@ -26,10 +26,13 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
@@ -165,6 +168,32 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       description = "Verbose logs, listing all skipped tests")
   private final Boolean verbose = false;
 
+  @Option(
+      names = {"--bal-sequential"},
+      description =
+          "Run every block on the sequential block processor. By default the parallel block"
+              + " processor runs, as on a Bonsai node, scheduling transactions from the block's block"
+              + " access list. The list is validated either way.")
+  private boolean balSequential = false;
+
+  @Option(
+      names = {"--bal-report"},
+      description =
+          "Print one JSON line to stderr for each block executed, naming the executor that ran it,"
+              + " and one more when the parallel block processor failed it and re-ran it"
+              + " sequentially. Off by default.")
+  private boolean balReport = false;
+
+  @Option(
+      names = {"--bal-withhold"},
+      description =
+          "Import every block without the access list its fixture carries, as full sync does, so"
+              + " Besu builds the list itself, post-Amsterdam blocks take the accumulator state root"
+              + " path, and the parallel block processor schedules optimistically. Off by default.")
+  private boolean balWithhold = false;
+
+  private BlockExecutionPathListener executionPathListener = BlockExecutionPathListener.NONE;
+
   @ParentCommand private final EvmToolCommand parentCommand;
 
   // picocli does it magically
@@ -214,6 +243,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     }
 
     boolean setupFailed = false;
+    if (balReport) {
+      executionPathListener = new BalExecutionReporter(System.err);
+    }
     try {
       if (blockchainTestFiles.isEmpty()) {
         // if no files were specified, use standard input to get filenames
@@ -370,7 +402,10 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     // test is validated against the wrong parameters.
     final ProtocolSchedule schedule =
         ReferenceTestProtocolSchedules.cached(
-                parentCommand.getEvmConfiguration(), spec.getBlobScheduleOptions().orElse(null))
+                parentCommand.getEvmConfiguration(),
+                spec.getBlobScheduleOptions().orElse(null),
+                !balSequential,
+                executionPathListener)
             .getByName(spec.getNetwork());
 
     BlockTestTracerManager tracerManager = null;
@@ -432,8 +467,26 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
         final Stopwatch timer = Stopwatch.createStarted();
 
+        // A delivered access list passes the gate a peer's list does: used only when it hashes to
+        // the header's commitment, otherwise dropped and the block judged on its header.
+        final Optional<BlockAccessList> fixtureList = candidateBlock.getBlockAccessList();
+        final Optional<BlockAccessList> delivered = balWithhold ? Optional.empty() : fixtureList;
+        final Optional<BlockAccessList> accessList =
+            accessListMatchingHeader(delivered, block.getHeader());
+        final String accessListMissing;
+        if (balWithhold && fixtureList.isPresent()) {
+          accessListMissing = BalExecutionReporter.WITHHELD;
+        } else if (delivered.isPresent() && accessList.isEmpty()) {
+          accessListMissing = BalExecutionReporter.BAD_ACCESS_LIST;
+        } else {
+          accessListMissing = "";
+        }
         final BlockImportResult importResult =
-            blockImporter.importBlock(context, block, validationMode, validationMode);
+            BalExecutionReporter.importing(
+                accessListMissing,
+                () ->
+                    blockImporter.importBlock(
+                        context, block, validationMode, validationMode, accessList));
 
         timer.stop();
 
@@ -622,6 +675,16 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         progressOut().println("Journaled account configured and fork prior to the merge specified");
       }
     }
+  }
+
+  /**
+   * Returns the delivered access list when it hashes to the header's commitment, as
+   * GetBlockAccessListsFromPeerTask checks a peer's list, and empty otherwise.
+   */
+  private static Optional<BlockAccessList> accessListMatchingHeader(
+      final Optional<BlockAccessList> delivered, final BlockHeader header) {
+    return delivered.filter(
+        list -> header.getBalHash().equals(Optional.of(BodyValidation.balHash(list))));
   }
 
   /**

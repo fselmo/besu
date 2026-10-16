@@ -6,6 +6,7 @@
 - `eth_getProof` now follows the execution-apis rules, regarding leading zeros and error codes. [#11668](https://github.com/besu-eth/besu/pull/11668)
 - `engine_getPayload` no longer waits for the in-progress block build when only the empty block has been built, as [execution-apis#958](https://github.com/ethereum/execution-apis/pull/958) requires. The default of `--Xpos-block-finalization-timeout-ms` changes from 800 to 0 and the option now accepts 0; set it to a positive value to restore the previous wait. [#11774](https://github.com/besu-eth/besu/pull/11774)
 - `eth_simulateV1` now rejects unknown account overrides [#11695](https://github.com/besu-eth/besu/pull/11695)
+- `evmtool block-test --block-access-list` and `--noblock-access-list`, added in 26.10.2, are removed. Use `--bal-withhold` to import blocks without their access lists, the name the client test runner interface gives the flag; access lists are delivered by default. [#TODO-PR-NUMBER](https://github.com/besu-eth/besu/pull/TODO-PR-NUMBER)
 
 ### Bug fixes
 - Block propagation now retries a block that peers do not serve with a delay that grows from 250 ms to 30 s and stops after 10 retries, releasing the block number for a later announcement. Previously it rescheduled the retrieval immediately and without a limit for as long as the number stayed in the propagation range. Block propagation stops once a finalized forkchoice is received, so this only affects networks that do not send one (Clique/PoA) and tests, not mainnet. [#11674](https://github.com/besu-eth/besu/pull/11674)
@@ -27,6 +28,7 @@
 - Block import preloads and commits only the state a block changes, and builds trie keys without streams. [#11758](https://github.com/besu-eth/besu/pull/11758)
 - QBFT validators import a committed block without executing it again when they created it or validated it as a proposal, removing one block execution from the critical path of every block. A proposer no longer executes its own proposal again to validate it. [#11469](https://github.com/besu-eth/besu/pull/11469)
 - `--sync-mode=SNAP2` downloads the chain and the state together, the state following the chain head through block access lists. [#11803](https://github.com/besu-eth/besu/pull/11803)
+- `evmtool block-test` and `engine-test` follow the client test runner interface shared by execution clients: `engine-test` runs through the node's `MergeCoordinator`, both run blocks on the parallel block processor unless `--bal-sequential` is given, `--json-array` results list each rejected block with Besu's own error, `--bal-report` prints which executor ran each block, and `block-test --bal-withhold` imports blocks without their access lists. [#TODO-PR-NUMBER](https://github.com/besu-eth/besu/pull/TODO-PR-NUMBER)
 
 ## 26.10.2
 

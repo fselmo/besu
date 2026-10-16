@@ -43,6 +43,7 @@
 - Snap sync checks the flat database ranges of its heal stage in parallel, which shortens that stage on mainnet from about 3 h 40 min to 34 min. [#11495](https://github.com/besu-eth/besu/pull/11495)
 - Update the discovery library to 26.10.1 for faster discv5 secp256k1 verification and ECDH, with Netty, BouncyCastle, Guava, Log4j and Reactor raised to the versions it requires. [#11671](https://github.com/besu-eth/besu/pull/11671)
 - Unschedule the Amsterdam fork on Hoodi, which 26.10.0 scheduled at timestamp `1793036568`. [#11709](https://github.com/besu-eth/besu/pull/11709)
+- `evmtool block-test` and `engine-test` follow the client test runner interface shared by execution clients: `engine-test` runs through the node's `MergeCoordinator`, both run blocks on the parallel block processor unless `--bal-sequential` is given, `--json-array` results list each rejected block with Besu's own error, `--bal-report` prints which executor ran each block, and `block-test --bal-withhold` replaces the unreleased `--noblock-access-list`. [#NNNN](https://github.com/besu-eth/besu/pull/NNNN)
 
 ## 26.10.0
 

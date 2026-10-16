@@ -22,6 +22,7 @@
 - Support Amsterdam hardfork at genesis on Ephemery, aligning with Ephemery iteration 165 and removing dynamic in-cycle BPO offsets. [#11728](https://github.com/besu-eth/besu/pull/11728)
 - `engine_newPayload` replies before it stores a valid block and its trie log. [#11682](https://github.com/besu-eth/besu/pull/11682)
 - Block import preloads and commits only the state a block changes, and builds trie keys without streams. [#11758](https://github.com/besu-eth/besu/pull/11758)
+- `evmtool block-test` and `engine-test` follow the client test runner interface shared by execution clients: `engine-test` runs through the node's `MergeCoordinator`, both run blocks on the parallel block processor unless `--bal-sequential` is given, `--json-array` results list each rejected block with Besu's own error, `--bal-report` prints which executor ran each block, and `block-test --bal-withhold` replaces the unreleased `--noblock-access-list`. [#NNNN](https://github.com/besu-eth/besu/pull/NNNN)
 
 ## 26.10.2
 

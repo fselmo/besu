@@ -317,7 +317,9 @@ $EVM block-test  --workers 8 <path-to>/blockchain_tests/           # consume-rlp
 A directory argument is walked recursively and spread over `--workers` workers. `--test-name-regex`
 is the raw form of `-PsimLimit` and takes the same expression (`.*(7928|8282).*`); `--test-name` is
 the glob form described above. `--json-array` emits machine-readable results (`[{name, pass, fork,
-lastBlockHash, error}]`) and nothing else, so the exit code is what reports an empty or failed run.
+lastBlockHash, error, rejections}]`) and nothing else, so the exit code is what reports an empty or
+failed run. `rejections` lists every block or payload Besu rejected, with Besu's own error; a
+consumer such as EEST's `consume` checks that error through its Besu exception mapper.
 
 A single fixture file can also be piped in as `stdin`, which all three subcommands accept:
 
@@ -326,7 +328,21 @@ $EVM engine-test stdin < <path-to>/one_fixture.json
 ```
 
 `engine-test` prints failures and a final summary only; `--verbose` adds a line per test.
-`block-test` logs every imported block, so pipe through `grep -v 'Imported in'` for a quiet run.
+`block-test` logs every imported block unless `--json-array` is given, so pipe through
+`grep -v 'Imported in'` for a quiet run.
+
+#### Client test runner interface
+
+`block-test` and `engine-test` follow the client test runner interface that execution clients
+share, so a harness can drive them as it drives other clients' runners: see
+<!-- LINK: execution-specs client test runners page -->. Besu specifics:
+
+- Both run blocks on the parallel block processor, as a Bonsai node does. `--bal-sequential` runs
+  every block on the sequential block processor instead.
+- `--bal-report` lines carry one more key, `scheduler`: `bal` when transactions are scheduled from
+  the block's access list, `optimistic` when the block has none. A sequential line's `reason` is
+  `disabled` under `--bal-sequential`, or `not-path-based` when the world state cannot run
+  transactions in parallel.
 
 > The Gradle-extracted fixtures live at `ethereum/referencetests/build/execution-spec-tests/fixtures/`
 > (stable) and `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/` (devnet), so you

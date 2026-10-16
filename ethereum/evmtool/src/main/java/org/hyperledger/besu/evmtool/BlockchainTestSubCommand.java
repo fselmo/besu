@@ -57,11 +57,14 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.io.Writer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -69,6 +72,7 @@ import java.util.stream.Collectors;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.tuweni.bytes.Bytes32;
@@ -141,8 +145,11 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
   @Option(
       names = {"--json-array"},
-      description = "Output results as a JSON array: name, pass, fork, lastBlockHash, error.")
+      description =
+          "Output results as a JSON array: name, pass, fork, lastBlockHash, error, rejections.")
   private boolean jsonArray = false;
+
+  private static final PrintWriter DISCARDED_OUTPUT = new PrintWriter(Writer.nullWriter());
 
   private final List<ObjectNode> jsonArrayResults = Collections.synchronizedList(new ArrayList<>());
 
@@ -187,7 +194,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     AbstractPrecompiledContract.setPrecompileCaching(enablePrecompileCache);
     AbstractBLS12PrecompiledContract.setPrecompileCaching(enablePrecompileCache);
     KZGPointEvalPrecompiledContract.setPrecompileCaching(enablePrecompileCache);
-    final ObjectMapper blockchainTestMapper = JsonUtils.createObjectMapper();
+    final ObjectMapper blockchainTestMapper = JsonUtils.createFixtureMapper();
     final FixtureRunner.TestResults results = new FixtureRunner.TestResults();
 
     final JavaType javaType =
@@ -200,7 +207,8 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         nameFilter = TestNameFilter.fromOptions(testName, testNameRegex);
       } catch (final IllegalArgumentException e) {
         parentCommand.out.println(e.getMessage());
-        exitCode = 1;
+        // A filter that cannot be compiled is input the runner cannot run.
+        exitCode = 2;
         return;
       }
     }
@@ -223,6 +231,8 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             executeBlockchainTest(blockchainTests, results);
           } else {
             parentCommand.out.println("File not found: " + fileName);
+            // A listed fixture that does not exist means not every fixture ran.
+            setupFailed = true;
           }
         }
       } else {
@@ -255,7 +265,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             "No blockchain test was executed%s.%n",
             TestNameFilter.describe(testName, testNameRegex));
       }
-      exitCode = results.failed() > 0 || setupFailed || !results.hasTests() ? 1 : 0;
+      exitCode = results.exitCode(setupFailed);
       if (jsonArray) {
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
       } else if (results.hasTests()) {
@@ -276,12 +286,12 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                   // too, and testing the wrong field silently runs the whole tree unfiltered.
                   if (nameFilter != null && !matchesTestName(test)) {
                     if (verbose) {
-                      parentCommand.out.println("Skipping test: " + test);
+                      progressOut().println("Skipping test: " + test);
                     }
                     return false;
                   }
                   if (verbose) {
-                    parentCommand.out.println("Considering " + test);
+                    progressOut().println("Considering " + test);
                   }
                   return true;
                 })
@@ -320,6 +330,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       return;
     }
     executeBlockchainTest(blockchainTests, results);
+  }
+
+  /**
+   * Where per-test progress goes: stdout, except under {@code --json-array}, whose stdout is the
+   * array alone so that it parses.
+   */
+  private PrintWriter progressOut() {
+    return jsonArray ? DISCARDED_OUTPUT : parentCommand.out;
   }
 
   private boolean matchesTestName(final String test) {
@@ -385,6 +403,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     int totalTxCount = 0;
     int blockCount = 0;
     long testStartTime = System.currentTimeMillis();
+    final ArrayNode rejections = FixtureRunner.newRejections();
 
     final BlockchainReferenceTestCaseSpec.CandidateBlock[] candidateBlocks =
         spec.getCandidateBlocks();
@@ -427,6 +446,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
           totalTxCount += block.getBody().getTransactions().size();
         }
 
+        if (!importResult.isImported()) {
+          FixtureRunner.addRejection(
+              rejections,
+              blockIndex,
+              Optional.of(block.getHash()),
+              importResult.getErrorMessage().orElse(""));
+        }
+
         final String blockFailureReason =
             getBlockImportFailureReason(importResult, candidateBlock, block);
         testPassed &= (blockFailureReason == null);
@@ -441,6 +468,10 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       } catch (final RLPException e) {
         // Do not call getBlock() again here: decoding already failed, and a second call rethrows
         // and drops this test from --json-array output (see #11328).
+        if (isLastIteration) {
+          FixtureRunner.addRejection(
+              rejections, blockIndex, Optional.empty(), String.valueOf(e.getMessage()));
+        }
         if (candidateBlock.isValid()) {
           testPassed = false;
           final String rlpFailureReason =
@@ -452,6 +483,18 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             parentCommand.out.println(rlpFailureReason);
           }
         }
+      } catch (final RuntimeException e) {
+        // Anything else escaping import is a defect, not a rejection: a node rejects a block with
+        // a result, never an exception. Charged to this test, so the rest of the run still runs.
+        testPassed = false;
+        final String exceptionFailureReason = "Unexpected exception importing block: " + e;
+        if (failureReason == null) {
+          failureReason = exceptionFailureReason;
+        }
+        if (!jsonArray) {
+          parentCommand.out.println(exceptionFailureReason);
+        }
+        break;
       }
     }
 
@@ -483,7 +526,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               blockCount);
     }
 
-    recordResult(test, spec, blockchain, testPassed, failureReason, results);
+    recordResult(test, spec, blockchain, testPassed, failureReason, rejections, results);
   }
 
   private static @Nullable String getBlockImportFailureReason(
@@ -537,6 +580,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       final MutableBlockchain blockchain,
       final boolean testPassed,
       final @Nullable String failureReason,
+      final ArrayNode rejections,
       final FixtureRunner.TestResults results) {
     if (testPassed) {
       results.recordPass();
@@ -551,6 +595,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       result.put("fork", spec.getNetwork());
       result.put("lastBlockHash", blockchain.getChainHeadHash().getBytes().toHexString());
       result.put("error", failureReason);
+      result.set("rejections", rejections);
       jsonArrayResults.add(result);
     }
   }
@@ -570,12 +615,11 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       if (worldState
           .streamAccounts(Bytes32.ZERO, Integer.MAX_VALUE)
           .anyMatch(AccountState::isEmpty)) {
-        parentCommand.out.println("Journaled account configured and empty account detected");
+        progressOut().println("Journaled account configured and empty account detected");
       }
 
       if (EvmSpecVersion.SPURIOUS_DRAGON.compareTo(evm.getEvmVersion()) > 0) {
-        parentCommand.out.println(
-            "Journaled account configured and fork prior to the merge specified");
+        progressOut().println("Journaled account configured and fork prior to the merge specified");
       }
     }
   }

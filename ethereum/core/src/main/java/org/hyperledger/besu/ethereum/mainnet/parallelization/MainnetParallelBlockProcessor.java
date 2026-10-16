@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
@@ -132,7 +133,11 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
     if (worldState instanceof BonsaiWorldState) {
       ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
     }
-    return processBlockSequentially(context);
+    final BlockProcessingResult sequentialResult = processBlockSequentially(context);
+    balConfiguration
+        .getExecutionPathListener()
+        .onSequentialFallback(block.getHeader(), blockProcessingResult, sequentialResult);
+    return sequentialResult;
   }
 
   /** Returns whether a block whose parallel processing failed is rerun sequentially. */
@@ -159,17 +164,21 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockAccessList> blockAccessList,
       final Optional<BlockHeader> maybeParentHeader) {
+    final BlockExecutionPathListener listener = balConfiguration.getExecutionPathListener();
     if (!(protocolContext.getWorldStateArchive() instanceof PathBasedWorldStateProvider)) {
+      listener.onSequential(blockHeader, "not-path-based");
       return Optional.empty();
     }
 
     final ParallelBlockTransactionProcessor parallelProcessor;
 
     if (balConfiguration.isPerfectParallelizationEnabled() && blockAccessList.isPresent()) {
+      listener.onParallel(blockHeader, "bal");
       parallelProcessor =
           new BalConcurrentTransactionProcessor(
               transactionProcessor, blockAccessList.get(), balConfiguration);
     } else {
+      listener.onParallel(blockHeader, "optimistic");
       parallelProcessor = new OptimisticConcurrentTransactionProcessor(transactionProcessor);
     }
 

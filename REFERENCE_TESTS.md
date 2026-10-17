@@ -343,6 +343,9 @@ share, so a harness can drive them as it drives other clients' runners: see
   the block's access list, `optimistic` when the block has none. A sequential line's `reason` is
   `disabled` under `--bal-sequential`, or `not-path-based` when the world state cannot run
   transactions in parallel.
+- Under `--json-array`, `engine-test` passes an `INVALID` payload whenever the fixture expects a
+  rejection, whatever exception it names. Without the flag, as in `consumeEngineTestsStable`, it
+  still requires Besu's error to map to that exception.
 
 > The Gradle-extracted fixtures live at `ethereum/referencetests/build/execution-spec-tests/fixtures/`
 > (stable) and `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/` (devnet), so you

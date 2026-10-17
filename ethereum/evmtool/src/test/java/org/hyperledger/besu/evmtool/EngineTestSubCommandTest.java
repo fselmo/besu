@@ -93,7 +93,7 @@ class EngineTestSubCommandTest {
   }
 
   @Test
-  void payloadRejectedForAnotherReasonStillFailsEngineTestsOwnCheck() throws IOException {
+  void payloadRejectedForAnotherReasonPassesAndReportsTheError() throws IOException {
     final Path otherReason =
         withFirstPayload(
             payload ->
@@ -101,9 +101,20 @@ class EngineTestSubCommandTest {
 
     final JsonNode result = result(otherReason, false);
 
-    assertThat(result.get("pass").asBoolean()).isFalse();
+    assertThat(result.get("pass").asBoolean()).isTrue();
     assertThat(result.get("rejections").get(0).get("error").asText())
         .contains("Block access list hash mismatch");
+  }
+
+  @Test
+  void payloadRejectedForAnotherReasonStillFailsEngineTestsOwnCheckWithoutJsonArray()
+      throws IOException {
+    final Path otherReason =
+        withFirstPayload(
+            payload ->
+                payload.put("validationError", "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS"));
+
+    assertThat(exitStatus(System.in, otherReason.toString())).isEqualTo(1);
   }
 
   @Test
@@ -244,11 +255,8 @@ class EngineTestSubCommandTest {
 
   @Test
   void exitStatusIsOneWhenATestFails() throws IOException {
-    final Path otherReason =
-        withFirstPayload(
-            payload ->
-                payload.put("validationError", "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS"));
-    assertThat(exitStatus(System.in, "--json-array", otherReason.toString())).isEqualTo(1);
+    final Path expectedValid = withFirstPayload(payload -> payload.remove("validationError"));
+    assertThat(exitStatus(System.in, "--json-array", expectedValid.toString())).isEqualTo(1);
   }
 
   @Test

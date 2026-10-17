@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -391,20 +392,19 @@ final class FixtureRunner {
     }
 
     /**
-     * Appends a failing {@code --json-array} row for each unreadable fixture and for the declared
-     * cases that never ran, so the array accounts for a non-zero exit on its own.
+     * Prints each unreadable fixture and the declared cases that never ran, for {@code
+     * --json-array}, whose results hold fixtures only: a file name is not a fixture name, and the
+     * exit status already says that not every fixture ran.
      *
-     * @param rows the array being built
-     * @param emptyFields the command's other row fields
+     * @param err where to print, the command's standard error
      */
-    void addNotRunRows(final List<ObjectNode> rows, final String... emptyFields) {
+    void printNotRun(final PrintStream err) {
       synchronized (unreadable) {
-        unreadable.forEach((file, reason) -> rows.add(notRunRow(file, reason, emptyFields)));
+        unreadable.forEach((file, reason) -> err.printf("Unreadable file %s: %s%n", file, reason));
       }
       final int unaccounted = unaccountedCases();
       if (unaccounted > 0) {
-        rows.add(
-            notRunRow("NOT RUN", notRunMessage(unaccounted, declaredCases.get()), emptyFields));
+        err.printf("NOT RUN: %s%n", notRunMessage(unaccounted, declaredCases.get()));
       }
     }
 

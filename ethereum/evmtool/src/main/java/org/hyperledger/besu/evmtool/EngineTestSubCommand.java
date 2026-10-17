@@ -900,8 +900,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
             break;
           }
           // Strict exception matching (mirrors hive): the message Besu returns with INVALID must
-          // map to the fixture's expected exception.
-          if (payload.getValidationError() != null) {
+          // map to the fixture's expected exception. Not under --json-array, where the verdict
+          // only says whether a rejection was expected and the consumer maps Besu's error.
+          if (!jsonArray && payload.getValidationError() != null) {
             final String mismatch =
                 EngineTestExceptionMapper.mismatch(payload.getValidationError(), status.getError());
             if (mismatch != null) {

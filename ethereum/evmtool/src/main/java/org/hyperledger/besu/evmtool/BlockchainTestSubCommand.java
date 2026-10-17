@@ -262,7 +262,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                 blockchainTestMapper.readValue(file, javaType);
             executeBlockchainTest(blockchainTests, results);
           } else {
-            parentCommand.out.println("File not found: " + fileName);
+            System.err.println("File not found: " + fileName);
             // A listed fixture that does not exist means not every fixture ran.
             setupFailed = true;
           }
@@ -299,6 +299,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       }
       exitCode = results.exitCode(setupFailed);
       if (jsonArray) {
+        results.printUnreadable(System.err);
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
       } else if (results.hasTests()) {
         results.printSummary(parentCommand.out);

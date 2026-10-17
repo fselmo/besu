@@ -264,10 +264,21 @@ class BlockchainTestSubCommandTest {
             new EvmToolCommand(System.in, new PrintWriter(stdout, true, UTF_8)));
     new CommandLine(blockTest)
         .parseArgs("--json-array", FIXTURE.toString(), unparseable.toString());
-    blockTest.run();
+    final PrintStream originalErr = System.err;
+    final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    System.setErr(new PrintStream(stderr, true, UTF_8));
+    try {
+      blockTest.run();
+    } finally {
+      System.setErr(originalErr);
+    }
 
     assertThat(blockTest.getExitCode()).isEqualTo(2);
-    assertThat(MAPPER.readTree(stdout.toString(UTF_8)).get(0).get("pass").asBoolean()).isTrue();
+    // The good file's results only: the bad file is named on stderr, never as a result.
+    final JsonNode results = MAPPER.readTree(stdout.toString(UTF_8));
+    assertThat(results).hasSize(1);
+    assertThat(results.get(0).get("pass").asBoolean()).isTrue();
+    assertThat(stderr.toString(UTF_8)).contains(unparseable.toString());
   }
 
   @Test

@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Hash;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -216,6 +217,18 @@ final class FixtureRunner {
 
     void recordUnreadable(final String file, final String reason) {
       unreadable.put(file, reason);
+    }
+
+    /**
+     * Prints each unreadable fixture, for {@code --json-array}, whose results hold fixtures only: a
+     * file name is not a fixture name, and the exit status already says that not every fixture ran.
+     *
+     * @param err where to print, the command's standard error
+     */
+    void printUnreadable(final PrintStream err) {
+      synchronized (unreadable) {
+        unreadable.forEach((file, reason) -> err.printf("Unreadable file %s: %s%n", file, reason));
+      }
     }
 
     boolean hasTests() {

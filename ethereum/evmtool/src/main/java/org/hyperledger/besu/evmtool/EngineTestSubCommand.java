@@ -260,7 +260,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           if (file.isFile()) {
             runFile(file.toPath(), mapper, javaType, results);
           } else {
-            parentCommand.out.println("File not found: " + fileName);
+            System.err.println("File not found: " + fileName);
             // A listed fixture that does not exist means not every fixture ran.
             setupFailed = true;
           }
@@ -297,6 +297,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         }
       }
       if (jsonArray) {
+        results.printUnreadable(System.err);
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
       } else if (results.hasTests()) {
         results.printSummary(parentCommand.out);

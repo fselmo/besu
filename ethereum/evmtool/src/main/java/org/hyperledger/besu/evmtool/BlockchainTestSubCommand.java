@@ -261,7 +261,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             // No stdin: these are file names, and the stream is the list still being read.
             runFile(file.toPath(), null, blockchainTestMapper, javaType, results);
           } else {
-            parentCommand.out.println("File not found: " + fileName);
+            System.err.println("File not found: " + fileName);
             // A listed fixture that does not exist means not every fixture ran.
             setupFailed = true;
           }
@@ -295,7 +295,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       }
       exitCode = results.exitCode(setupFailed);
       if (jsonArray) {
-        results.addNotRunRows(jsonArrayResults, "fork", "lastBlockHash");
+        results.printNotRun(System.err);
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
       } else if (results.hasTests() || results.unaccountedCases() > 0) {
         results.printSummary(parentCommand.out);

@@ -256,7 +256,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
             // No stdin: these are file names, and the stream is the list still being read.
             runFile(file.toPath(), null, mapper, javaType, results);
           } else {
-            parentCommand.out.println("File not found: " + fileName);
+            System.err.println("File not found: " + fileName);
             // A listed fixture that does not exist means not every fixture ran.
             setupFailed = true;
           }
@@ -290,7 +290,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         }
       }
       if (jsonArray) {
-        results.addNotRunRows(jsonArrayResults, "fork", "lastBlockHash", "lastPayloadStatus");
+        results.printNotRun(System.err);
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
       } else if (results.hasTests() || results.unaccountedCases() > 0) {
         results.printSummary(parentCommand.out);

@@ -269,12 +269,29 @@ class EngineTestSubCommandTest {
   }
 
   @Test
-  void exitStatusIsTwoWhenAFixtureFileCannotBeParsed() throws IOException {
+  void exitStatusIsTwoWhenAFixtureFileCannotBeParsedAndTheRestStillRun() throws IOException {
     final Path unparseable = Files.writeString(tempDir.resolve("unparseable.json"), "not json");
-    assertThat(
-            exitStatus(
-                System.in, "--json-array", INVALID_ACCESS_LIST.toString(), unparseable.toString()))
-        .isEqualTo(2);
+    final ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+    final EngineTestSubCommand engineTest =
+        new EngineTestSubCommand(
+            new EvmToolCommand(System.in, new PrintWriter(stdout, true, UTF_8)));
+    new CommandLine(engineTest)
+        .parseArgs("--json-array", INVALID_ACCESS_LIST.toString(), unparseable.toString());
+    final PrintStream originalErr = System.err;
+    final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    System.setErr(new PrintStream(stderr, true, UTF_8));
+    try {
+      engineTest.run();
+    } finally {
+      System.setErr(originalErr);
+    }
+
+    assertThat(engineTest.getExitCode()).isEqualTo(2);
+    // The good file's results only: the bad file is named on stderr, never as a result.
+    final JsonNode results = MAPPER.readTree(stdout.toString(UTF_8));
+    assertThat(results).hasSize(1);
+    assertThat(results.get(0).get("pass").asBoolean()).isTrue();
+    assertThat(stderr.toString(UTF_8)).contains("Unreadable file " + unparseable);
   }
 
   @Test

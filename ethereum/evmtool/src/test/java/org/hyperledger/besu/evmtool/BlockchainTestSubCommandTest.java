@@ -267,10 +267,21 @@ class BlockchainTestSubCommandTest {
             new EvmToolCommand(System.in, new PrintWriter(stdout, true, UTF_8)));
     new CommandLine(blockTest)
         .parseArgs("--json-array", FIXTURE.toString(), unparseable.toString());
-    blockTest.run();
+    final PrintStream originalErr = System.err;
+    final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    System.setErr(new PrintStream(stderr, true, UTF_8));
+    try {
+      blockTest.run();
+    } finally {
+      System.setErr(originalErr);
+    }
 
     assertThat(blockTest.getExitCode()).isEqualTo(2);
-    assertThat(MAPPER.readTree(stdout.toString(UTF_8)).get(0).get("pass").asBoolean()).isTrue();
+    // The good file's results only: the bad file is named on stderr, never as a result.
+    final JsonNode results = MAPPER.readTree(stdout.toString(UTF_8));
+    assertThat(results).hasSize(1);
+    assertThat(results.get(0).get("pass").asBoolean()).isTrue();
+    assertThat(stderr.toString(UTF_8)).contains(unparseable.toString());
   }
 
   @Test
@@ -464,19 +475,25 @@ class BlockchainTestSubCommandTest {
   }
 
   @Test
-  void jsonArrayCarriesAFailingRowForAnUnreadableFileAndTheCasesNotRun() throws Exception {
+  void jsonArrayNamesAnUnreadableFileAndTheCasesNotRunOnStderrOnly() throws Exception {
     final ByteArrayOutputStream baos = new ByteArrayOutputStream();
     final BlockchainTestSubCommand command =
         new BlockchainTestSubCommand(
             new EvmToolCommand(System.in, new PrintWriter(baos, true, UTF_8)));
     new CommandLine(command).parseArgs("--json-array", resourcePath("bogus-test.json"));
-    command.run();
+    final PrintStream originalErr = System.err;
+    final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    System.setErr(new PrintStream(stderr, true, UTF_8));
+    try {
+      command.run();
+    } finally {
+      System.setErr(originalErr);
+    }
 
-    final List<Map<String, Object>> rows =
-        MAPPER.readValue(baos.toString(UTF_8), new TypeReference<>() {});
-    assertThat(rows)
-        .extracting(row -> row.get("name"), row -> row.get("pass"))
-        .containsExactly(tuple(resourcePath("bogus-test.json"), false), tuple("NOT RUN", false));
+    assertThat(baos.toString(UTF_8).trim()).isEqualTo("[]");
+    assertThat(stderr.toString(UTF_8))
+        .contains("Unreadable file " + resourcePath("bogus-test.json"))
+        .contains("NOT RUN: 1 of 1 declared case(s) never executed");
     assertThat(command.getExitCode()).isEqualTo(2);
   }
 

@@ -29,6 +29,7 @@ import static org.hyperledger.besu.evmtool.EngineTestSubCommand.COMMAND_NAME;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -72,6 +73,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpda
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV2;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
@@ -85,6 +87,8 @@ import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.referencetests.EngineTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProvider;
@@ -106,6 +110,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 import java.util.function.IntFunction;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -560,7 +565,20 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         EngineHarness.SCHEDULER,
         null,
         MiningConfiguration.newDefault(),
-        backwardSyncContext);
+        backwardSyncContext) {
+      // A node stores a valid block after newPayload replies, on the ordered engine thread that
+      // runs before the next call. The runner calls the methods directly, so it stores the block
+      // before the reply, or the next forkchoiceUpdated could miss it and answer SYNCING.
+      @Override
+      public BlockProcessingResult rememberBlock(
+          final Block block,
+          final Optional<BlockAccessList> blockAccessList,
+          final InclusionListTransactions inclusionListTransactions,
+          final Executor blockWriter) {
+        return super.rememberBlock(
+            block, blockAccessList, inclusionListTransactions, Runnable::run);
+      }
+    };
   }
 
   /** The engine replay proper, with {@code context} owned (and released) by the caller. */
